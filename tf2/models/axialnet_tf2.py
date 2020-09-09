@@ -295,7 +295,7 @@ class AxialUnet(tf.keras.Model):
 if __name__ == "__main__":
 	import dolhasz
 	
-	batch_size = 12
+	batch_size = 8*3
 
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=batch_size).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=batch_size, training=False).no_masks()
