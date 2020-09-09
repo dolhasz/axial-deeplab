@@ -298,7 +298,8 @@ if __name__ == "__main__":
     val_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=4, train=False).no_masks()
 
     model = AxialUnet()
-    model.build((4,256,256,3))
-    model.summary()
-    model.compile('adam', 'mse')
+    with tf.distribute.MirroredStrategy().scope():
+        model.build((4,256,256,3))
+        model.summary()
+        model.compile('adam', 'mse')
     model.fit(gen, validation_data=val_gen)
