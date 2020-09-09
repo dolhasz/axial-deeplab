@@ -306,4 +306,15 @@ if __name__ == "__main__":
 		model.build((batch_size,256,256,3))
 		model.summary()
 		model.compile('adam', 'mse')
-	model.fit(train_gen, validation_data=val_gen, epochs=epochs)
+	model.fit(
+            x=train_gen,
+            epochs=epochs,
+            steps_per_epoch=tf.data.experimental.cardinality(train_gen).numpy()//epochs,
+            # callbacks=callbacks,
+            validation_data=val_gen,
+            validation_steps=tf.data.experimental.cardinality(val_gen).numpy()//epochs,
+            max_queue_size=512,
+            workers=16,
+            use_multiprocessing=False,
+            shuffle=True
+        )
