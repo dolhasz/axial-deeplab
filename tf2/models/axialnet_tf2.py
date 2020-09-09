@@ -296,13 +296,14 @@ if __name__ == "__main__":
 	import dolhasz
 	
 	batch_size = 12
+	epochs = 50
 
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=batch_size).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=batch_size, training=False).no_masks()
+	train_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	with strategy.scope():
 		model = AxialUnet()
 		model.build((batch_size,256,256,3))
 		model.summary()
 		model.compile('adam', 'mse')
-	model.fit(train_gen, validation_data=val_gen, epochs=10)
+	model.fit(train_gen, validation_data=val_gen, epochs=epochs)
