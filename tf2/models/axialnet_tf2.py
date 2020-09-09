@@ -295,10 +295,10 @@ class AxialUnet(tf.keras.Model):
 if __name__ == "__main__":
     import dolhasz
     train_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=4).no_masks()
-    val_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=4, train=False).no_masks()
+    val_gen = dolhasz.data_opt.iHarmonyGenerator(batch_size=4, training=False).no_masks()
 
     model = AxialUnet()
     model.build((4,256,256,3))
     model.summary()
     model.compile('adam', 'mse')
-    model.fit(gen, validation_data=val_gen)
+    model.fit(train_gen, validation_data=val_gen)
