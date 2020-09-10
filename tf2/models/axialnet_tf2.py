@@ -41,17 +41,17 @@ class AxialAttention(tf.keras.layers.Layer):
 		# Positional embedding
 		self.q_relative = tf.Variable(
 			tf.random.normal((int(kernel_size * 2 - 1), 1, self.group_ch // 2)),
-			trainable=True,
+			trainable=True, name='q_rel'
 		)
 
 		self.k_relative = tf.Variable(
 			tf.random.normal((int(kernel_size * 2 - 1), 1, self.group_ch // 2)),
-			trainable=True,
+			trainable=True, name='k_rel'
 		)
 
 		self.v_relative = tf.Variable(
 			tf.random.normal((int(kernel_size * 2 - 1), 1, self.group_ch)),
-			trainable=True,
+			trainable=True, name='v_rel'
 		)
 
 		if stride > 1:
@@ -62,7 +62,7 @@ class AxialAttention(tf.keras.layers.Layer):
 
 		self.reset_parameters()
 
-	def call(self, x):
+	def call(self, x, training=False):
 		if self.width:
 			x = tf.transpose(x, perm=[0,2,1,3])
 		N, H, W, C = x.get_shape().as_list()
@@ -71,11 +71,11 @@ class AxialAttention(tf.keras.layers.Layer):
 		# x = tf.transpose(x, (0, 2, 3, 1))
 		# Transformations
 		q = self.q_transform(x)
-		q = self.bn_q(q)
+		q = self.bn_q(q, training=training)
 		k = self.k_transform(x)
-		k = self.bn_k(k)
+		k = self.bn_k(k, training=training)
 		v = self.v_transform(x)
-		v = self.bn_v(v)
+		v = self.bn_v(v, training=training)
 		x = tf.transpose(x, (0, 3, 1, 2))
 
 		# Calculate position embedding
@@ -95,13 +95,13 @@ class AxialAttention(tf.keras.layers.Layer):
 				new_q, 
 				q_embedding
 			)
-		qr = tf.reshape(self.bn_qr(tf.reshape(qr, (N, -1, W, self.groups))), (N, H, H, W, self.groups))
+		qr = tf.reshape(self.bn_qr(tf.reshape(qr, (N, -1, W, self.groups)), training=training), (N, H, H, W, self.groups))
 
 		kr = tf.einsum('biwgc, ijc->bijwg', 
 				tf.reshape(k, (N, H, W, self.groups, self.group_ch // 2)), 
 				k_embedding
 			)
-		kr = tf.reshape(self.bn_kr(tf.reshape(kr, (N, -1, W, self.groups))), (N, H, H, W, self.groups))
+		kr = tf.reshape(self.bn_kr(tf.reshape(kr, (N, -1, W, self.groups)), training=training), (N, H, H, W, self.groups))
 		kr = tf.transpose(kr, (0, 2, 1, 3, 4))
 
 		# Blocks of axial attention
@@ -110,13 +110,13 @@ class AxialAttention(tf.keras.layers.Layer):
 
 		# (q, k)
 		qk = tf.einsum('biwgc, bjwgc->bijwg', q, k)
-		qk = tf.reshape(self.bn_qk(tf.reshape(qk, (N,-1, W, self.groups))), (N, H, H, W, self.groups))
+		qk = tf.reshape(self.bn_qk(tf.reshape(qk, (N,-1, W, self.groups)), training=training), (N, H, H, W, self.groups))
 	
 		# (N, groups, H, H, W)
 		similarity = tf.math.softmax(qk + qr + kr, axis=-2)
 		sv = tf.einsum('bijwg, bjwgc->biwgc', similarity, tf.reshape(v, (N, H, W, self.groups, self.group_ch)))
 		sve = tf.einsum('bijwg, jic->biwgc', similarity, v_embedding)
-		output = self.bn_sv(tf.reshape(sv, (N, H, W, -1))) + self.bn_sve(tf.reshape(sve, (N, H, W, -1)))
+		output = self.bn_sv(tf.reshape(sv, (N, H, W, -1)), training=training) + self.bn_sve(tf.reshape(sve, (N, H, W, -1)), training=training)
 
 		if self.width:
 			output = tf.transpose(output, perm=[0,2,1,3])
@@ -153,16 +153,16 @@ class AxialEncoderBlock(tf.keras.layers.Layer):
 		self.downsample = downsample
 		self.stride = stride
 
-	def call(self, x):
+	def call(self, x, training=False):
 		identity = x
 		out = self.conv_down(x)
-		out = self.bn1(out)
+		out = self.bn1(out, training=training)
 		out = self.relu(out)
-		out = self.height_block(out)
-		out = self.width_block(out)
+		out = self.height_block(out, training=training)
+		out = self.width_block(out, training=training)
 		out = self.relu(out)
 		out = self.conv_up(out)
-		out = self.bn2(out)
+		out = self.bn2(out, training=training)
 		if self.downsample is not None:
 			identity = self.downsample(x)
 		out += identity
@@ -193,17 +193,17 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		self.stride = stride
 		self.skip = skip
 
-	def call(self, x): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
+	def call(self, x, training=False): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
 		identity = x
 		out = self.conv_down(x)
 		out = tf.keras.layers.UpSampling2D()(out)
-		out = self.bn1(out)
+		out = self.bn1(out, training=training)
 		out = self.relu(out)
 		out = self.height_block(out)
 		out = self.width_block(out)
 		out = self.relu(out)
 		out = self.conv_up(out)
-		out = self.bn2(out)
+		out = self.bn2(out, training=training)
 		out += self.upconv(identity)
 		if self.skip is not None: # TODO: This should probably change
 			out += self.skip
@@ -245,9 +245,9 @@ class AxialUnet(tf.keras.Model):
 		self.upsample = tf.keras.layers.UpSampling2D()
 		self.final = tf.keras.layers.Conv2D(3, (3,3), padding="same")
 
-	def call(self, x):
+	def call(self, x, training=False):
 		x = self.conv_1(x)
-		x = self.bn_1(x)
+		x = self.bn_1(x, training=training)
 		x = self.relu(x)
 		x = self.mp(x)
 		x = self.layer1(x)
@@ -308,14 +308,14 @@ if __name__ == "__main__":
 		model.summary()
 		model.compile('adam', 'mse')
 	model.fit(
-            x=train_gen,
-            epochs=epochs,
-            steps_per_epoch=tf.data.experimental.cardinality(train_gen).numpy()//epochs,
-            callbacks=callbacks,
-            validation_data=val_gen,
-            validation_steps=tf.data.experimental.cardinality(val_gen).numpy()//epochs,
-            max_queue_size=512,
-            workers=16,
-            use_multiprocessing=False,
-            shuffle=True
-        )
+		x=train_gen,
+		epochs=epochs,
+		steps_per_epoch=tf.data.experimental.cardinality(train_gen).numpy()//epochs,
+		callbacks=callbacks,
+		validation_data=val_gen,
+		validation_steps=tf.data.experimental.cardinality(val_gen).numpy()//epochs,
+		max_queue_size=512,
+		workers=16,
+		use_multiprocessing=False,
+		shuffle=True
+    )
