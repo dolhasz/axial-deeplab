@@ -149,7 +149,9 @@ class AxialEncoderBlock(tf.keras.layers.Layer):
 
 		self.conv_up = tf.keras.layers.Conv2D(out_ch, (1,1))
 		self.bn2 = tf.keras.layers.BatchNormalization()
-		self.relu = tf.keras.layers.Activation('relu')
+		self.relu1 = tf.keras.layers.Activation('relu')
+		self.relu2 = tf.keras.layers.Activation('relu')
+		self.relu3 = tf.keras.layers.Activation('relu')
 		self.downsample = downsample
 		self.stride = stride
 
@@ -157,16 +159,16 @@ class AxialEncoderBlock(tf.keras.layers.Layer):
 		identity = x
 		out = self.conv_down(x)
 		out = self.bn1(out, training=training)
-		out = self.relu(out)
+		out = self.relu1(out)
 		out = self.height_block(out, training=training)
 		out = self.width_block(out, training=training)
-		out = self.relu(out)
+		out = self.relu2(out)
 		out = self.conv_up(out)
 		out = self.bn2(out, training=training)
 		if self.downsample is not None:
 			identity = self.downsample(x)
 		out += identity
-		out = self.relu(out)
+		out = self.relu3(out)
 
 		return out
 
@@ -185,7 +187,9 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 
 		self.conv_up = tf.keras.layers.Conv2D(out_ch, (1,1))
 		self.bn2 = tf.keras.layers.BatchNormalization()
-		self.relu = tf.keras.layers.Activation('relu')
+		self.relu1 = tf.keras.layers.Activation('relu')
+		self.relu2 = tf.keras.layers.Activation('relu')
+		self.relu3 = tf.keras.layers.Activation('relu')
 		self.upconv = tf.keras.models.Sequential([
 			tf.keras.layers.Conv2D(in_ch, (1,1)),
 			tf.keras.layers.UpSampling2D()
@@ -198,16 +202,16 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		out = self.conv_down(x)
 		out = tf.keras.layers.UpSampling2D()(out)
 		out = self.bn1(out, training=training)
-		out = self.relu(out)
+		out = self.relu1(out)
 		out = self.height_block(out)
 		out = self.width_block(out)
-		out = self.relu(out)
+		out = self.relu2(out)
 		out = self.conv_up(out)
 		out = self.bn2(out, training=training)
 		out += self.upconv(identity)
 		if self.skip is not None: # TODO: This should probably change
 			out += self.skip
-		out = self.relu(out)
+		out = self.relu3(out)
 
 		return out
 
