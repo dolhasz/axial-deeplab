@@ -1,4 +1,10 @@
 import tensorflow as tf
+import dolhasz
+import sys
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import numpy as np
 
 class AxialAttention(tf.keras.layers.Layer):
 	def __init__(self, in_ch, out_ch, groups=8, kernel_size=56,
@@ -198,19 +204,22 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		self.skip = skip
 
 	def call(self, x, training=False): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
+		skip = None
+		if isinstance(x, list):
+			x, skip = x
 		identity = x
 		out = self.conv_down(x)
 		out = tf.keras.layers.UpSampling2D()(out)
 		out = self.bn1(out, training=training)
 		out = self.relu1(out)
-		out = self.height_block(out)
-		out = self.width_block(out)
+		out = self.height_block(out, training=training)
+		out = self.width_block(out, training=training)
 		out = self.relu2(out)
 		out = self.conv_up(out)
 		out = self.bn2(out, training=training)
 		out += self.upconv(identity)
-		if self.skip is not None: # TODO: This should probably change
-			out += self.skip
+		if skip is not None: # TODO: This should probably change
+			out += skip
 		out = self.relu3(out)
 
 		return out
@@ -252,16 +261,16 @@ class AxialUnet(tf.keras.Model):
 	def call(self, x, training=False):
 		x = self.conv_1(x)
 		x = self.bn_1(x, training=training)
-		x = self.relu(x)
-		x = self.mp(x)
-		x = self.layer1(x, training=training)
-		x = self.layer2(x, training=training)
-		x = self.layer3(x, training=training)
-		x = self.layer4(x, training=training)
-		x = self.layer5(x, training=training)
-		x = self.layer6(x, training=training)
-		x = self.layer7(x, training=training)
-		x = self.layer8(x, training=training)
+		xmp = self.relu(x)
+		x = self.mp(xmp)
+		x1 = self.layer1(x, training=training)
+		x2 = self.layer2(x1, training=training)
+		x3 = self.layer3(x2, training=training)
+		x = self.layer4(x3, training=training)
+		x = self.layer5([x, x3], training=training)
+		x = self.layer6([x, x2], training=training)
+		x = self.layer7([x, x1], training=training)
+		x = self.layer8([x, xmp], training=training)
 		x = self.upsample(x)
 		x = self.final(x)
 		# x = self.aa4(x)
@@ -295,13 +304,9 @@ class AxialUnet(tf.keras.Model):
 		return tf.keras.models.Sequential(layers)
 
 
-
-if __name__ == "__main__":
-	import dolhasz
-	
+def train(args=None):
 	batch_size = 6*2
 	epochs = 50
-
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
@@ -323,4 +328,38 @@ if __name__ == "__main__":
 		use_multiprocessing=False,
 		shuffle=True
    	)
+
+
+def test(path):
+	batch_size = 1
+	epochs = 1
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	# model = tf.keras.models.load_model(path, compile=False)
+	model = AxialUnet()
+	model.build((batch_size,256,256,3))
+	model.load_weights(path).expect_partial()
+	model.compile('adam', 'mse')
+	model.evaluate(val_gen)
+
+	for batch in val_gen:
+		x, y = batch
+		# print(x.shape)
+		# print(y.shape)
+		p = model.predict(x)
+		print(y)
+		f, ax = plt.subplots(1,3)
+		ax[0].imshow(np.array(x).reshape(256,256,3))
+		ax[1].imshow(np.array(y).reshape(256,256,3))
+		ax[2].imshow(np.array(p).reshape(256,256,3))
+		plt.show()
+
+if __name__ == "__main__":
+	if sys.argv[1] is not None:
+		test(sys.argv[1])
+	else:
+		train()
+
+
+	
+
 #	model.load_weights('/tmp/BEST_MODEL.tf')
