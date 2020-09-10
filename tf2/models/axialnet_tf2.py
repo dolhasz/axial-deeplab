@@ -193,7 +193,7 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		self.stride = stride
 		self.skip = skip
 
-	def call(self, x):
+	def call(self, x): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
 		identity = x
 		out = self.conv_down(x)
 		out = tf.keras.layers.UpSampling2D()(out)
@@ -205,7 +205,7 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		out = self.conv_up(out)
 		out = self.bn2(out)
 		out += self.upconv(identity)
-		if self.skip is not None:
+		if self.skip is not None: # TODO: This should probably change
 			out += self.skip
 		out = self.relu(out)
 
@@ -242,8 +242,8 @@ class AxialUnet(tf.keras.Model):
 		self.in_ch = 64
 		self.layer8 = self._make_layer(AxialDecoderBlock, int(64), 1, stride=1, kernel_size=128,
 									   dilate=False)
-		self.final = tf.keras.layers.Conv2D(3, (3,3), padding="same")
 		self.upsample = tf.keras.layers.UpSampling2D()
+		self.final = tf.keras.layers.Conv2D(3, (3,3), padding="same")
 
 	def call(self, x):
 		x = self.conv_1(x)
@@ -301,6 +301,7 @@ if __name__ == "__main__":
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
+	callbacks = [tf.keras.callbacks.ModelCheckpoint('./BEST_MODEL.hdf5', monitor='val_loss', verbose=0, save_best_only=True)]
 	with strategy.scope():
 		model = AxialUnet()
 		model.build((batch_size,256,256,3))
@@ -310,7 +311,7 @@ if __name__ == "__main__":
             x=train_gen,
             epochs=epochs,
             steps_per_epoch=tf.data.experimental.cardinality(train_gen).numpy()//epochs,
-            # callbacks=callbacks,
+            callbacks=callbacks,
             validation_data=val_gen,
             validation_steps=tf.data.experimental.cardinality(val_gen).numpy()//epochs,
             max_queue_size=512,
