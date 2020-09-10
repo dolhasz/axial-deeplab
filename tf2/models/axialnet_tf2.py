@@ -318,4 +318,5 @@ if __name__ == "__main__":
 		workers=16,
 		use_multiprocessing=False,
 		shuffle=True
-    )
+   	)
+#	model.load_weights('/tmp/BEST_MODEL.tf')
