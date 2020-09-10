@@ -301,7 +301,7 @@ if __name__ == "__main__":
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
-	callbacks = [tf.keras.callbacks.ModelCheckpoint('./BEST_MODEL.hdf5', monitor='val_loss', verbose=0, save_best_only=True)]
+	callbacks = [tf.keras.callbacks.ModelCheckpoint('/tmp/BEST_MODEL.tf', monitor='val_loss', verbose=0, save_best_only=True)]
 	with strategy.scope():
 		model = AxialUnet()
 		model.build((batch_size,256,256,3))
@@ -318,4 +318,5 @@ if __name__ == "__main__":
 		workers=16,
 		use_multiprocessing=False,
 		shuffle=True
-    )
+   	)
+#	model.load_weights('/tmp/BEST_MODEL.tf')
