@@ -2,7 +2,7 @@ import tensorflow as tf
 import dolhasz
 import sys
 import matplotlib
-matplotlib.use('TkAgg')
+#matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -354,7 +354,7 @@ def test(path):
 		plt.show()
 
 if __name__ == "__main__":
-	if sys.argv[1] is not None:
+	if len(sys.argv) > 1:
 		test(sys.argv[1])
 	else:
 		train()
