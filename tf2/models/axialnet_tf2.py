@@ -333,8 +333,9 @@ def train(args=None):
 
 def mse_scaled(y_true, y_pred):
 	error = y_true-y_pred
-	count = tf.math.count_nonzero(error)
-	mse = tf.reduce_mean(tf.math.square(error) / ((tf.cast(count, 'float32') + 0.00000001) / (tf.cast(tf.size(error), 'float32') + 0.00000001)))
+	count = tf.math.count_nonzero(error, [1,2,3])
+	area = tf.cast(count, 'float32') /  (y_true.shape[1]*y_true.shape[2]*y_true.shape[3])
+	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) / (area+0.0000001)
 	return mse
 
 
