@@ -315,7 +315,7 @@ def train(args=None):
 		model = AxialUnet()
 		model.build((batch_size,256,256,3))
 		model.summary()
-		model.compile('adam', 'mse')
+		model.compile('adam', mse_scaled)
 	model.fit(
 		x=train_gen,
 		epochs=epochs,
@@ -330,10 +330,20 @@ def train(args=None):
    	)
 
 
+def mse_scaled(y_true, y_pred):
+	error = y_true-y_pred
+	print(error.shape)
+	count = tf.math.count_nonzero(error)
+	print(count)
+	mse = tf.reduce_mean(tf.math.square(error)) / (float(count) / len(error) +0.00000001)
+	print(mse)
+	return mse
+
+
 def test(path):
 	batch_size = 1
 	epochs = 1
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	# model = tf.keras.models.load_model(path, compile=False)
 	model = AxialUnet()
 	model.build((batch_size,256,256,3))
