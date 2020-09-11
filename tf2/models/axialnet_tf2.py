@@ -26,7 +26,7 @@ class AxialAttention(tf.keras.layers.Layer):
 		self.q_transform = tf.keras.layers.Conv2D(out_ch // 2, (1, 1), 
 						   strides=(1, 1), padding='valid', use_bias=False, 
 						   kernel_initializer=tf.keras.initializers.RandomNormal(0, tf.math.sqrt(1. / self.in_ch * self.group_ch)))
-		self.k_transform = tf.keras.layers.Conv2D(out_ch // 2, (1,1), 
+		self.k_transform = tf.keras.layers.Conv2D(out_ch // 2, (1, 1), 
 						   strides=(1, 1), padding='valid', use_bias=False,
 						   kernel_initializer=tf.keras.initializers.RandomNormal(0, tf.math.sqrt(1. / self.in_ch)))
 		self.v_transform = tf.keras.layers.Conv2D(out_ch, (1, 1), 
@@ -82,7 +82,7 @@ class AxialAttention(tf.keras.layers.Layer):
 		k = self.bn_k(k, training=training)
 		v = self.v_transform(x)
 		v = self.bn_v(v, training=training)
-		x = tf.transpose(x, (0, 3, 1, 2))
+		x = tf.transpose(x, (0, 3, 1, 2)) # TODO: CHECK IF THIS IS RIGHT
 
 		# Calculate position embedding
 		q_embedding = []
@@ -95,7 +95,7 @@ class AxialAttention(tf.keras.layers.Layer):
 		q_embedding = tf.concat(q_embedding, axis=1)
 		k_embedding = tf.concat(k_embedding, axis=1)
 		v_embedding = tf.concat(v_embedding, axis=1)
-		
+		# 'ij, ij -> i
 		new_q = tf.reshape(q, (N, H, W, self.groups, self.group_ch // 2))
 		qr = tf.einsum('biwgc, ijc->bijwg', 
 				new_q, 
@@ -229,7 +229,7 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 class AxialUnet(tf.keras.Model):
 	def __init__(self, in_ch=64, groups=8, base_width=64, scale=1):
 		super(AxialUnet, self).__init__()
-		self.dilation = 1
+		self.dilation = None
 		self.in_ch = int(in_ch / scale)
 		self.base_width = int(base_width / scale)
 		self.groups = groups
@@ -238,15 +238,15 @@ class AxialUnet(tf.keras.Model):
 		self.relu = tf.keras.layers.Activation('relu')
 		self.mp = tf.keras.layers.MaxPool2D()
 
-		self.layer1 = self._make_layer(AxialEncoderBlock, int(128/scale), 2, kernel_size=64)
-		self.layer2 = self._make_layer(AxialEncoderBlock, int(256/scale), 1, stride=2, kernel_size=64,
+		self.layer1 = self._make_layer(AxialEncoderBlock, int(128/scale), 3, kernel_size=64)
+		self.layer2 = self._make_layer(AxialEncoderBlock, int(256/scale), 4, stride=2, kernel_size=64,
 									   dilate=False)
-		self.layer3 = self._make_layer(AxialEncoderBlock, int(512/scale), 1, stride=2, kernel_size=32,
+		self.layer3 = self._make_layer(AxialEncoderBlock, int(512/scale), 6, stride=2, kernel_size=32,
 									   dilate=False)
-		self.layer4 = self._make_layer(AxialEncoderBlock, int(1024/scale), 1, stride=2, kernel_size=16,
+		self.layer4 = self._make_layer(AxialEncoderBlock, int(1024/scale), 3, stride=2, kernel_size=16,
 									   dilate=False)
 		self.in_ch = int(512/scale)
-		self.layer5 = self._make_layer(AxialDecoderBlock, int(512/scale), 1, kernel_size=16)
+		self.layer5 = self._make_layer(AxialDecoderBlock, int(512/scale), 1, stride=1, kernel_size=16)
 		self.in_ch = int(256/scale)
 		self.layer6 = self._make_layer(AxialDecoderBlock, int(256/scale), 1, stride=1, kernel_size=32,
 									   dilate=False)
@@ -283,7 +283,7 @@ class AxialUnet(tf.keras.Model):
 		if dilate:
 			self.dilation *= stride
 			stride = 1
-		if stride != 1 or self.in_ch != ch * block.expansion:
+		if (stride != 1 or self.in_ch != ch * block.expansion):
 			downsample = tf.keras.Sequential(
 				[tf.keras.layers.Conv2D(ch * block.expansion, (1,1), strides=stride, padding="same"),
 				tf.keras.layers.BatchNormalization()]
@@ -293,12 +293,18 @@ class AxialUnet(tf.keras.Model):
 		layers.append(block(self.in_ch, ch, stride=stride, downsample=downsample, groups=self.groups,
 							base_width=self.base_width, dilation=previous_dilation, 
 							kernel_size=kernel_size))
+		print(dict(in_ch=self.in_ch, out_ch=ch, stride=stride, downsample=downsample, groups=self.groups,
+							base_width=self.base_width, dilation=previous_dilation, 
+							kernel_size=kernel_size))
 		self.in_ch = ch * block.expansion
-		if stride != 1:
+		if stride != 1:# and not isinstance(block, AxialDecoderBlock):
 			kernel_size = kernel_size // 2
 
 		for _ in range(1, blocks):
 			layers.append(block(self.in_ch, ch, groups=self.groups,
+								base_width=self.base_width, dilation=self.dilation,
+								kernel_size=kernel_size))
+			print(dict(in_ch=self.in_ch, out_ch=ch, groups=self.groups,
 								base_width=self.base_width, dilation=self.dilation,
 								kernel_size=kernel_size))
 
@@ -306,12 +312,16 @@ class AxialUnet(tf.keras.Model):
 
 
 def train(args=None):
-	batch_size = 6*2
+	batch_size = 4
 	epochs = 50
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
-	callbacks = [tf.keras.callbacks.ModelCheckpoint('./cp.ckpt', monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True)]
+	callbacks = [
+		tf.keras.callbacks.ModelCheckpoint('./cp.ckpt', monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
+		# tf.keras.callbacks.TensorBoard(log_dir='./logs/'),
+		tf.keras.callbacks.ReduceLROnPlateau()
+		]
 	with strategy.scope():
 		model = AxialUnet(scale=2)
 		model.build((batch_size,256,256,3))
@@ -335,7 +345,7 @@ def mse_scaled(y_true, y_pred):
 	error = y_true-y_pred
 	count = tf.math.count_nonzero(error, [1,2,3])
 	area = tf.cast(count, 'float32') /  (y_true.shape[1]*y_true.shape[2]*y_true.shape[3])
-	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) / (area+0.0000001)
+	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) + (area+0.0000001)
 	return tf.reduce_mean(mse)
 
 
