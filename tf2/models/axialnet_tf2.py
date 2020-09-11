@@ -201,7 +201,7 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 			tf.keras.layers.UpSampling2D()
 		])
 		self.stride = stride
-		self.skip = skip
+		self.skip_conv = tf.keras.layers.Conv2D(out_ch, (1,1))
 
 	def call(self, x, training=False): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
 		skip = None
@@ -219,6 +219,7 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		out = self.bn2(out, training=training)
 		out += self.upconv(identity)
 		if skip is not None: # TODO: This should probably change
+			skip = self.skip_conv(skip)
 			out += skip
 		out = self.relu3(out)
 
@@ -315,7 +316,7 @@ def train(args=None):
 		model = AxialUnet()
 		model.build((batch_size,256,256,3))
 		model.summary()
-		model.compile('adam', mse_scaled)
+		model.compile('adam', mse_scaled, metrics=['mse'])
 	model.fit(
 		x=train_gen,
 		epochs=epochs,
