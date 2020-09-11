@@ -314,8 +314,8 @@ class AxialUnet(tf.keras.Model):
 def train(args=None):
 	batch_size = 4
 	epochs = 50
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [
 		tf.keras.callbacks.ModelCheckpoint('./cp.ckpt', monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
