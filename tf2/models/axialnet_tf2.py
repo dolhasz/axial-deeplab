@@ -227,34 +227,34 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 
 
 class AxialUnet(tf.keras.Model):
-	def __init__(self, in_ch=64, groups=8, base_width=64):
+	def __init__(self, in_ch=64, groups=8, base_width=64, scale=1):
 		super(AxialUnet, self).__init__()
 		self.dilation = 1
-		self.in_ch = in_ch
-		self.base_width = base_width
+		self.in_ch = int(in_ch / scale)
+		self.base_width = int(base_width / scale)
 		self.groups = groups
-		self.conv_1 = tf.keras.layers.Conv2D(64, (7,7), strides=2, padding="same")
+		self.conv_1 = tf.keras.layers.Conv2D(int(64/scale), (7,7), strides=2, padding="same")
 		self.bn_1 = tf.keras.layers.BatchNormalization()
 		self.relu = tf.keras.layers.Activation('relu')
 		self.mp = tf.keras.layers.MaxPool2D()
 
-		self.layer1 = self._make_layer(AxialEncoderBlock, int(128), 1, kernel_size=64)
-		self.layer2 = self._make_layer(AxialEncoderBlock, int(256), 1, stride=2, kernel_size=64,
+		self.layer1 = self._make_layer(AxialEncoderBlock, int(128/scale), 2, kernel_size=64)
+		self.layer2 = self._make_layer(AxialEncoderBlock, int(256/scale), 1, stride=2, kernel_size=64,
 									   dilate=False)
-		self.layer3 = self._make_layer(AxialEncoderBlock, int(512), 1, stride=2, kernel_size=32,
+		self.layer3 = self._make_layer(AxialEncoderBlock, int(512/scale), 1, stride=2, kernel_size=32,
 									   dilate=False)
-		self.layer4 = self._make_layer(AxialEncoderBlock, int(1024), 1, stride=2, kernel_size=16,
+		self.layer4 = self._make_layer(AxialEncoderBlock, int(1024/scale), 1, stride=2, kernel_size=16,
 									   dilate=False)
-		self.in_ch = 512
-		self.layer5 = self._make_layer(AxialDecoderBlock, int(512), 1, kernel_size=16)
-		self.in_ch = 256
-		self.layer6 = self._make_layer(AxialDecoderBlock, int(256), 1, stride=1, kernel_size=32,
+		self.in_ch = int(512/scale)
+		self.layer5 = self._make_layer(AxialDecoderBlock, int(512/scale), 1, kernel_size=16)
+		self.in_ch = int(256/scale)
+		self.layer6 = self._make_layer(AxialDecoderBlock, int(256/scale), 1, stride=1, kernel_size=32,
 									   dilate=False)
-		self.in_ch = 128
-		self.layer7 = self._make_layer(AxialDecoderBlock, int(128), 1, stride=1, kernel_size=64,
+		self.in_ch = int(128/scale)
+		self.layer7 = self._make_layer(AxialDecoderBlock, int(128/scale), 1, stride=1, kernel_size=64,
 									   dilate=False)
-		self.in_ch = 64
-		self.layer8 = self._make_layer(AxialDecoderBlock, int(64), 1, stride=1, kernel_size=128,
+		self.in_ch = int(64/scale)
+		self.layer8 = self._make_layer(AxialDecoderBlock, int(64/scale), 1, stride=1, kernel_size=128,
 									   dilate=False)
 		self.upsample = tf.keras.layers.UpSampling2D()
 		self.final = tf.keras.layers.Conv2D(3, (3,3), padding="same")
@@ -313,10 +313,10 @@ def train(args=None):
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [tf.keras.callbacks.ModelCheckpoint('./cp.ckpt', monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True)]
 	with strategy.scope():
-		model = AxialUnet()
+		model = AxialUnet(scale=2)
 		model.build((batch_size,256,256,3))
 		model.summary()
-		model.compile('adam', mse_scaled, metrics=['mse'])
+		model.compile('adam', 'mse', metrics=['mse'])
 	model.fit(
 		x=train_gen,
 		epochs=epochs,
@@ -336,7 +336,7 @@ def mse_scaled(y_true, y_pred):
 	count = tf.math.count_nonzero(error, [1,2,3])
 	area = tf.cast(count, 'float32') /  (y_true.shape[1]*y_true.shape[2]*y_true.shape[3])
 	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) / (area+0.0000001)
-	return mse
+	return tf.reduce_mean(mse)
 
 
 def test(path):
@@ -344,11 +344,11 @@ def test(path):
 	epochs = 1
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	# model = tf.keras.models.load_model(path, compile=False)
-	model = AxialUnet()
+	model = AxialUnet(scale=2)
 	model.build((batch_size,256,256,3))
 	model.load_weights(path).expect_partial()
 	model.compile('adam', 'mse')
-	model.evaluate(val_gen)
+	# model.evaluate(val_gen)
 
 	for batch in val_gen:
 		x, y = batch
