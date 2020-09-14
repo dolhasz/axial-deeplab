@@ -5,6 +5,8 @@ import matplotlib
 #matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+import datetime
 
 class AxialAttention(tf.keras.layers.Layer):
 	def __init__(self, in_ch, out_ch, groups=8, kernel_size=56,
@@ -247,6 +249,10 @@ class AxialUnet(tf.keras.Model):
 									   dilate=False)
 		self.in_ch = int(512/scale)
 		self.layer5 = self._make_layer(AxialDecoderBlock, int(512/scale), 1, stride=1, kernel_size=16)
+
+		# self.mid_dense = tf.keras.layers.Dense(1024)
+		# self.reshape = tf.keras.layers.Reshape((1,1,1024))
+
 		self.in_ch = int(256/scale)
 		self.layer6 = self._make_layer(AxialDecoderBlock, int(256/scale), 1, stride=1, kernel_size=32,
 									   dilate=False)
@@ -312,21 +318,24 @@ class AxialUnet(tf.keras.Model):
 
 
 def train(args=None):
-	batch_size = 4
+	logpath = os.path.join('./logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
+	os.mkdir(logpath)
+	batch_size = 6*2
 	epochs = 50
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [
-		tf.keras.callbacks.ModelCheckpoint('./cp.ckpt', monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
-		# tf.keras.callbacks.TensorBoard(log_dir='./logs/'),
-		tf.keras.callbacks.ReduceLROnPlateau()
+		tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
+		tf.keras.callbacks.TensorBoard(log_dir=logpath),
+		tf.keras.callbacks.ReduceLROnPlateau(patience=2)
 		]
 	with strategy.scope():
-		model = AxialUnet(scale=2)
+		model = AxialUnet(scale=1)
 		model.build((batch_size,256,256,3))
 		model.summary()
-		model.compile('adam', 'mse', metrics=['mse'])
+		opt = tf.keras.optimizers.Adam(lr=0.0001)
+		model.compile(opt, 'mse', metrics=['mse', 'mae'])
 	model.fit(
 		x=train_gen,
 		epochs=epochs,
