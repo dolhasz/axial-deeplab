@@ -84,7 +84,6 @@ class AxialAttention(tf.keras.layers.Layer):
 		k = self.bn_k(k, training=training)
 		v = self.v_transform(x)
 		v = self.bn_v(v, training=training)
-		x = tf.transpose(x, (0, 3, 1, 2)) # TODO: CHECK IF THIS IS RIGHT
 
 		# Calculate position embedding
 		q_embedding = []
@@ -124,7 +123,7 @@ class AxialAttention(tf.keras.layers.Layer):
 		similarity = tf.math.softmax(qk + qr + kr, axis=-2)
 		sv = tf.einsum('bijwg, bjwgc->biwgc', similarity, tf.reshape(v, (N, H, W, self.groups, self.group_ch)))
 		sve = tf.einsum('bijwg, jic->biwgc', similarity, v_embedding)
-		output = self.bn_sv(tf.reshape(sv, (N, H, W, -1)), training=training) + self.bn_sve(tf.reshape(sve, (N, H, W, -1)), training=training)
+		output = self.bn_sv(tf.reshape(sv, (N, H, W, self.groups*self.group_ch)), training=training) + self.bn_sve(tf.reshape(sve, (N, H, W, self.groups*self.group_ch)), training=training)
 
 		if self.width:
 			output = tf.transpose(output, perm=[0,2,1,3])
@@ -199,7 +198,7 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		self.relu2 = tf.keras.layers.Activation('relu')
 		self.relu3 = tf.keras.layers.Activation('relu')
 		self.upconv = tf.keras.models.Sequential([
-			tf.keras.layers.Conv2D(in_ch, (1,1)),
+			tf.keras.layers.Conv2D(out_ch, (1,1)),
 			tf.keras.layers.UpSampling2D()
 		])
 		self.stride = stride
@@ -226,6 +225,65 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		out = self.relu3(out)
 
 		return out
+
+
+def make_axial_unet(start_ch=16, groups=4):
+	def make_ds(target=128):
+		return tf.keras.Sequential(
+			[tf.keras.layers.Conv2D(target, (1,1), strides=2, padding="same"),
+			tf.keras.layers.BatchNormalization()]
+		)	
+	inpt = tf.keras.layers.Input(shape=(256,256,3))
+	x = tf.keras.layers.Conv2D(int(start_ch), (7,7), strides=2, padding="same")(inpt)
+	x = tf.keras.layers.BatchNormalization()(x)
+	xo = tf.keras.layers.Activation('relu')(x)
+	xp = tf.keras.layers.MaxPool2D()(xo)
+	
+
+	x0 = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=64)(xp)
+	x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=64)(x0)
+	x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=start_ch, kernel_size=64, downsample=make_ds(start_ch*2))(x)
+
+	x1 = AxialEncoderBlock(start_ch*2, start_ch*2, stride=1, groups=groups, base_width=64, kernel_size=32)(x)
+	x = AxialEncoderBlock(start_ch*2, start_ch*2, stride=1, groups=groups, base_width=64, kernel_size=32)(x1)
+	x = AxialEncoderBlock(start_ch*2, start_ch*4, stride=2, groups=groups, base_width=64, kernel_size=32, downsample=make_ds(start_ch*4))(x)
+
+	x2 = AxialEncoderBlock(start_ch*4, start_ch*4, stride=1, groups=groups, base_width=64, kernel_size=16)(x)
+	x = AxialEncoderBlock(start_ch*4, start_ch*4, stride=1, groups=groups, base_width=64, kernel_size=16)(x2)
+	x = AxialEncoderBlock(start_ch*4, start_ch*8, stride=2, groups=groups, base_width=64, kernel_size=16, downsample=make_ds(start_ch*8))(x)
+
+	x3 = AxialEncoderBlock(start_ch*8, start_ch*8, stride=1, groups=groups, base_width=64, kernel_size=8)(x)
+	x = AxialEncoderBlock(start_ch*8, start_ch*8, stride=1, groups=groups, base_width=64, kernel_size=8)(x3)
+	x = AxialEncoderBlock(start_ch*8, start_ch*16, stride=2, groups=groups, base_width=64, kernel_size=8, downsample=make_ds(start_ch*16))(x)
+
+	x4 = AxialEncoderBlock(start_ch*16, start_ch*16, stride=1, groups=groups, base_width=64, kernel_size=4)(x)
+	x = AxialEncoderBlock(start_ch*16, start_ch*16, stride=1, groups=groups, base_width=64, kernel_size=4)(x4)
+	x = AxialEncoderBlock(start_ch*16, start_ch*32, stride=2, groups=groups, base_width=64, kernel_size=4, downsample=make_ds(start_ch*32))(x)
+
+	x5 = AxialEncoderBlock(start_ch*32, start_ch*32, stride=1, groups=groups, base_width=64, kernel_size=2)(x)
+	x = AxialEncoderBlock(start_ch*32, start_ch*32, stride=1, groups=groups, base_width=64, kernel_size=2)(x5)
+	x = AxialEncoderBlock(start_ch*32, start_ch*64, stride=2, groups=groups, base_width=64, kernel_size=2, downsample=make_ds(start_ch*64))(x)
+
+	x = tf.keras.layers.Flatten()(x5)
+	x = tf.keras.layers.Dense(1024)(x)
+	x = tf.keras.layers.Reshape((1,1,1024))(x)
+
+	x = AxialDecoderBlock(start_ch*64, start_ch*32, stride=1, groups=groups, base_width=64, kernel_size=2)([x, x5])
+	x = AxialDecoderBlock(start_ch*32, start_ch*16, stride=1, groups=groups, base_width=64, kernel_size=4)([x, x4])
+	x = AxialDecoderBlock(start_ch*16, start_ch*8, stride=1, groups=groups, base_width=64, kernel_size=8)([x, x3])
+	x = AxialDecoderBlock(start_ch*8, start_ch*4, stride=1, groups=groups, base_width=64, kernel_size=16)([x, x2])
+	x = AxialDecoderBlock(start_ch*4, start_ch*2, stride=1, groups=groups, base_width=64, kernel_size=32)([x, x1])
+	x = AxialDecoderBlock(start_ch*2, start_ch, stride=1, groups=groups, base_width=64, kernel_size=64)([x, x0])
+	x = tf.keras.layers.Add()([x, xp])
+	x = tf.keras.layers.UpSampling2D()(x)
+	x = tf.keras.layers.Conv2D(32, (4,4), padding="same")(x)
+	x = tf.keras.layers.BatchNormalization()(x)
+	x = tf.keras.layers.Activation('relu')(x)
+	x = tf.keras.layers.Add()([x, xo])
+	x = tf.keras.layers.UpSampling2D()(x)
+	x = tf.keras.layers.Conv2D(3, (4,4), padding="same")(x)
+
+	return tf.keras.Model(inpt, x)
 
 
 class AxialUnet(tf.keras.Model):
@@ -318,12 +376,12 @@ class AxialUnet(tf.keras.Model):
 
 
 def train(args=None):
-	logpath = os.path.join('./logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
+	logpath = os.path.join('logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
 	os.mkdir(logpath)
 	batch_size = 6*2
 	epochs = 50
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='Hday2night', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [
 		tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
@@ -331,10 +389,9 @@ def train(args=None):
 		tf.keras.callbacks.ReduceLROnPlateau(patience=2)
 		]
 	with strategy.scope():
-		model = AxialUnet(scale=1)
-		model.build((batch_size,256,256,3))
+		model = make_axial_unet(32, 4)
 		model.summary()
-		opt = tf.keras.optimizers.Adam(lr=0.0001)
+		opt = tf.keras.optimizers.Adam(lr=0.001)
 		model.compile(opt, 'mse', metrics=['mse', 'mae'])
 	model.fit(
 		x=train_gen,
@@ -382,6 +439,9 @@ def test(path):
 		plt.show()
 
 if __name__ == "__main__":
+
+	# make_axial_unet().summary()
+
 	if len(sys.argv) > 1:
 		test(sys.argv[1])
 	else:
