@@ -67,8 +67,39 @@ class AxialAttention(tf.keras.layers.Layer):
 				pool_size=(stride, stride), 
 				strides=(stride, stride)
 			)
+		else:
+			self.pooling = None
 
 		self.reset_parameters()
+
+	def get_config(self):
+		config = super().get_config().copy()
+		config.update({
+			'in_ch' : self.in_ch,
+			'out_ch' : self.out_ch,
+			'groups' : self.groups,
+			'group_ch' : self.group_ch,
+			'kernel_size' : self.kernel_size,
+			'stride' : self.stride,
+			'bias' : self.bias,
+			'width' : self.width,
+			'q_transform' : self.q_transform,
+			'k_transform' : self.k_transform,
+			'v_transform' : self.v_transform,
+			'bn_q' : self.bn_q,
+			'bn_k' : self.bn_k,
+			'bn_v' : self.bn_v,
+			'bn_qk' : self.bn_qk,
+			'bn_qr' : self.bn_qr,
+			'bn_kr' : self.bn_kr,
+			'bn_sv' : self.bn_sv,
+			'bn_sve' : self.bn_sve,
+			'q_relative' : self.q_relative,
+			'k_relative' : self.k_relative,
+			'v_relative' : self.v_relative,
+			'pooling' : self.pooling
+		})
+		return config
 
 	def call(self, x, training=False):
 		if self.width:
@@ -162,7 +193,24 @@ class AxialEncoderBlock(tf.keras.layers.Layer):
 		self.downsample = downsample
 		self.stride = stride
 
-	def call(self, x, training=False):
+	def get_config(self):
+		config = super().get_config().copy()
+		config.update({
+			'conv_down' : self.conv_down,
+			'bn1' : self.bn1,
+			'height_block' : self.height_block,
+			'width_block' : self.width_block,
+			'conv_up' : self.conv_up,
+			'bn2' : self.bn2,
+			'relu1' : self.relu1,
+			'relu2' : self.relu2,
+			'relu3' : self.relu3,
+			'downsample' : self.downsample,
+			'stride' : self.stride
+		})
+		return config
+
+	def call(self, x, training=True):
 		identity = x
 		out = self.conv_down(x)
 		out = self.bn1(out, training=training)
@@ -204,7 +252,26 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		self.stride = stride
 		self.skip_conv = tf.keras.layers.Conv2D(out_ch, (1,1))
 
-	def call(self, x, training=False): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
+
+	def get_config(self):
+		config = super().get_config().copy()
+		config.update({
+			'conv_down' : self.conv_down,
+			'bn1' : self.bn1,
+			'height_block' : self.height_block,
+			'width_block' : self.width_block,
+			'conv_up' : self.conv_up,
+			'bn2' : self.bn2,
+			'relu1' : self.relu1,
+			'relu2' : self.relu2,
+			'relu3' : self.relu3,
+			'upconv' : self.upconv,
+			'stride' : self.stride,
+			'skip_conv' : self.skip_conv
+		})
+		return config
+
+	def call(self, x, training=True): # TODO: if input is list of tensors, then unpack skip connection and pass to attention blocks
 		skip = None
 		if isinstance(x, list):
 			x, skip = x
@@ -227,56 +294,46 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		return out
 
 
-def make_axial_unet(start_ch=16, groups=4):
+def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, dense=False):
 	def make_ds(target=128):
 		return tf.keras.Sequential(
 			[tf.keras.layers.Conv2D(target, (1,1), strides=2, padding="same"),
 			tf.keras.layers.BatchNormalization()]
-		)	
+		)
+
+	# Build root	
 	inpt = tf.keras.layers.Input(shape=(256,256,3))
 	x = tf.keras.layers.Conv2D(int(start_ch), (7,7), strides=2, padding="same")(inpt)
 	x = tf.keras.layers.BatchNormalization()(x)
 	xo = tf.keras.layers.Activation('relu')(x)
 	xp = tf.keras.layers.MaxPool2D()(xo)
-	
+	x = xp
 
-	x0 = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=64)(xp)
-	x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=64)(x0)
-	x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=start_ch, kernel_size=64, downsample=make_ds(start_ch*2))(x)
+	# Build encoder
+	skips = []
+	for layer_idx in range(n_layers):
+		for b in range(n_blocks-1):
+			x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)(x)
+			if b == 0:
+				skips.append(x)
+		x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=start_ch, kernel_size=ksize, downsample=make_ds(start_ch*2))(x)
+		start_ch *= 2
+		ksize //= 2
 
-	x1 = AxialEncoderBlock(start_ch*2, start_ch*2, stride=1, groups=groups, base_width=64, kernel_size=32)(x)
-	x = AxialEncoderBlock(start_ch*2, start_ch*2, stride=1, groups=groups, base_width=64, kernel_size=32)(x1)
-	x = AxialEncoderBlock(start_ch*2, start_ch*4, stride=2, groups=groups, base_width=64, kernel_size=32, downsample=make_ds(start_ch*4))(x)
+	if dense:
+		x = tf.keras.layers.Flatten()(x)
+		x = tf.keras.layers.Dense(1024)(x)
+		x = tf.keras.layers.Reshape((1,1,1024))(x)
 
-	x2 = AxialEncoderBlock(start_ch*4, start_ch*4, stride=1, groups=groups, base_width=64, kernel_size=16)(x)
-	x = AxialEncoderBlock(start_ch*4, start_ch*4, stride=1, groups=groups, base_width=64, kernel_size=16)(x2)
-	x = AxialEncoderBlock(start_ch*4, start_ch*8, stride=2, groups=groups, base_width=64, kernel_size=16, downsample=make_ds(start_ch*8))(x)
+	# Build decoder
+	for l in range(n_layers):
+		ksize *= 2
+		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)([x, skips[n_layers-l-1]])
+		start_ch //= 2
 
-	x3 = AxialEncoderBlock(start_ch*8, start_ch*8, stride=1, groups=groups, base_width=64, kernel_size=8)(x)
-	x = AxialEncoderBlock(start_ch*8, start_ch*8, stride=1, groups=groups, base_width=64, kernel_size=8)(x3)
-	x = AxialEncoderBlock(start_ch*8, start_ch*16, stride=2, groups=groups, base_width=64, kernel_size=8, downsample=make_ds(start_ch*16))(x)
-
-	x4 = AxialEncoderBlock(start_ch*16, start_ch*16, stride=1, groups=groups, base_width=64, kernel_size=4)(x)
-	x = AxialEncoderBlock(start_ch*16, start_ch*16, stride=1, groups=groups, base_width=64, kernel_size=4)(x4)
-	x = AxialEncoderBlock(start_ch*16, start_ch*32, stride=2, groups=groups, base_width=64, kernel_size=4, downsample=make_ds(start_ch*32))(x)
-
-	x5 = AxialEncoderBlock(start_ch*32, start_ch*32, stride=1, groups=groups, base_width=64, kernel_size=2)(x)
-	x = AxialEncoderBlock(start_ch*32, start_ch*32, stride=1, groups=groups, base_width=64, kernel_size=2)(x5)
-	x = AxialEncoderBlock(start_ch*32, start_ch*64, stride=2, groups=groups, base_width=64, kernel_size=2, downsample=make_ds(start_ch*64))(x)
-
-	x = tf.keras.layers.Flatten()(x5)
-	x = tf.keras.layers.Dense(1024)(x)
-	x = tf.keras.layers.Reshape((1,1,1024))(x)
-
-	x = AxialDecoderBlock(start_ch*64, start_ch*32, stride=1, groups=groups, base_width=64, kernel_size=2)([x, x5])
-	x = AxialDecoderBlock(start_ch*32, start_ch*16, stride=1, groups=groups, base_width=64, kernel_size=4)([x, x4])
-	x = AxialDecoderBlock(start_ch*16, start_ch*8, stride=1, groups=groups, base_width=64, kernel_size=8)([x, x3])
-	x = AxialDecoderBlock(start_ch*8, start_ch*4, stride=1, groups=groups, base_width=64, kernel_size=16)([x, x2])
-	x = AxialDecoderBlock(start_ch*4, start_ch*2, stride=1, groups=groups, base_width=64, kernel_size=32)([x, x1])
-	x = AxialDecoderBlock(start_ch*2, start_ch, stride=1, groups=groups, base_width=64, kernel_size=64)([x, x0])
 	x = tf.keras.layers.Add()([x, xp])
 	x = tf.keras.layers.UpSampling2D()(x)
-	x = tf.keras.layers.Conv2D(32, (4,4), padding="same")(x)
+	x = tf.keras.layers.Conv2D(start_ch, (4,4), padding="same")(x)
 	x = tf.keras.layers.BatchNormalization()(x)
 	x = tf.keras.layers.Activation('relu')(x)
 	x = tf.keras.layers.Add()([x, xo])
@@ -378,20 +435,27 @@ class AxialUnet(tf.keras.Model):
 def train(args=None):
 	logpath = os.path.join('logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
 	os.mkdir(logpath)
-	batch_size = 6*2
+	batch_size = 12
 	epochs = 50
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [
-		tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
+		# tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
 		tf.keras.callbacks.TensorBoard(log_dir=logpath),
-		tf.keras.callbacks.ReduceLROnPlateau(patience=2)
+		tf.keras.callbacks.ReduceLROnPlateau(patience=10)
 		]
 	with strategy.scope():
-		model = make_axial_unet(32, 4)
+		model = make_axial_unet(
+			start_ch=32, 
+			groups=1, 
+			n_blocks=2, 
+			n_layers=3, 
+			ksize=64, 
+			dense=False
+		)
 		model.summary()
-		opt = tf.keras.optimizers.Adam(lr=0.001)
+		opt = tf.keras.optimizers.Adam(lr=0.0001)
 		model.compile(opt, 'mse', metrics=['mse', 'mae'])
 	model.fit(
 		x=train_gen,
@@ -409,10 +473,10 @@ def train(args=None):
 
 def mse_scaled(y_true, y_pred):
 	error = y_true-y_pred
-	count = tf.math.count_nonzero(error, [1,2,3])
-	area = tf.cast(count, 'float32') /  (y_true.shape[1]*y_true.shape[2]*y_true.shape[3])
-	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) + (area+0.0000001)
-	return tf.reduce_mean(mse)
+	# count = tf.math.count_nonzero(error, [1,2,3])
+	# area = tf.cast(count, 'float32') /  (y_true.shape[1]*y_true.shape[2]*y_true.shape[3])
+	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) / (tf.math.reduce_sum(error, axis=[1,2,3])+0.00000001)
+	return mse
 
 
 def test(path):
@@ -440,7 +504,7 @@ def test(path):
 
 if __name__ == "__main__":
 
-	# make_axial_unet().summary()
+	# make_axial_unet(start_ch=16, groups=2, n_blocks=2, n_layers=4, ksize=64, dense=False).summary()
 
 	if len(sys.argv) > 1:
 		test(sys.argv[1])
