@@ -44,9 +44,9 @@ def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, den
 
 	# Build decoder
 	for l in range(n_layers):
-		ksize *= 2
 		start_ch //= 2
 		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)([x, skips[n_layers-l-1]])
+		ksize *= 2
 
 	x = tf.keras.layers.Add()([x, xp])
 	x = tf.keras.layers.UpSampling2D()(x)
