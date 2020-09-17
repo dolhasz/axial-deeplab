@@ -176,9 +176,12 @@ def test_net(args):
 def train_net(args):
     print("Init...")
     log_writer = tensorboardX.SummaryWriter(args.log_dir)
-    train_loader, _, val_loader, _ = lib.build_dataloader(args)
+    # train_loader, _, val_loader, _ = lib.build_dataloader(args)
     model = lib.build_model(args)
-    print('Parameters:', sum([np.prod(p.size()) for p in model.parameters()]))
+
+    print(model.forward(torch.ones(1,3,224,224)).shape)
+
+    # print('Parameters:', sum([np.prod(p.size()) for p in model.parameters()]))
 
     model = torch.nn.DataParallel(model)
     optimizer = lib.build_optimizer(args, model)
@@ -194,7 +197,8 @@ def train_net(args):
     if args.label_smoothing:
         criterion = cross_entropy_with_label_smoothing
     else:
-        criterion = nn.CrossEntropyLoss()
+        # criterion = nn.CrossEntropyLoss()
+        criterion = nn.MSELoss()
 
     if args.cuda:
         model.cuda()

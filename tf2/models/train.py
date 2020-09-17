@@ -30,12 +30,12 @@ def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, den
 	skips = []
 	for layer_idx in range(n_layers):
 		x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=start_ch, kernel_size=ksize, downsample=make_ds(start_ch*2))(x)
-		skips.append(x)
 		start_ch *= 2
+		ksize //= 2
 		for b in range(n_blocks-1):
 			x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)(x)
-			# if b == 0:
-		ksize //= 2
+			if b == (n_blocks-2):
+				skips.append(x)
 
 	if dense:
 		x = tf.keras.layers.Flatten()(x)
@@ -45,8 +45,8 @@ def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, den
 	# Build decoder
 	for l in range(n_layers):
 		ksize *= 2
-		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)([x, skips[n_layers-l-1]])
 		start_ch //= 2
+		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)([x, skips[n_layers-l-1]])
 
 	x = tf.keras.layers.Add()([x, xp])
 	x = tf.keras.layers.UpSampling2D()(x)
