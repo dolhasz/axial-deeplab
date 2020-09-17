@@ -12,9 +12,9 @@ from axialnet import AxialDecoderBlock, AxialEncoderBlock
 
 
 def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, dense=False):
-	def make_ds(target=128):
+	def make_ds(target=128, strides=2):
 		return tf.keras.Sequential(
-			[tf.keras.layers.Conv2D(target, (1,1), strides=2, padding="same"),
+			[tf.keras.layers.Conv2D(target, (1,1), strides=strides, padding="same"),
 			tf.keras.layers.BatchNormalization()]
 		)
 
@@ -23,33 +23,39 @@ def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, den
 	x = tf.keras.layers.Conv2D(int(start_ch), (7,7), strides=2, padding="same")(inpt)
 	x = tf.keras.layers.BatchNormalization()(x)
 	xo = tf.keras.layers.Activation('relu')(x)
-	xp = tf.keras.layers.MaxPool2D()(xo)
-	x = xp
-
-	# Build encoder
 	skips = []
+	skips.append(xo)
+	# skips.append(xo)
+	xp = tf.keras.layers.MaxPool2D()(xo)
+	# skips.append(xp)
+	x = xp
+	base_width = start_ch
+	# Build encoder
 	for layer_idx in range(n_layers):
-		x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=start_ch, kernel_size=ksize, downsample=make_ds(start_ch*2))(x)
+		if layer_idx == 0:
+			x = AxialEncoderBlock(start_ch, start_ch*2, stride=1, groups=groups, base_width=base_width, kernel_size=ksize, downsample=make_ds(start_ch*2, strides=1))(x)
+		else:
+			x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=base_width, kernel_size=ksize, downsample=make_ds(start_ch*2))(x)
+			# skips.append(x)
+			ksize //= 2
 		start_ch *= 2
-		ksize //= 2
 		for b in range(n_blocks-1):
-			x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)(x)
-			if b == (n_blocks-2):
-				skips.append(x)
-
+			x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=base_width, kernel_size=ksize)(x)
+			# if b == (n_blocks-2):
+		skips.append(x)
 	if dense:
 		x = tf.keras.layers.Flatten()(x)
 		x = tf.keras.layers.Dense(1024)(x)
 		x = tf.keras.layers.Reshape((1,1,1024))(x)
-
+	[print(s) for s in skips]
 	# Build decoder
 	for l in range(n_layers):
-		start_ch //= 2
-		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)([x, skips[n_layers-l-1]])
 		ksize *= 2
+		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=base_width, kernel_size=ksize)([x, skips[n_layers-l-1]])
+		start_ch //= 2
 
-	x = tf.keras.layers.Add()([x, xp])
-	x = tf.keras.layers.UpSampling2D()(x)
+	# x = tf.keras.layers.Add()([x, xo])
+	# x = tf.keras.layers.UpSampling2D()(x)
 	x = tf.keras.layers.Conv2D(start_ch, (4,4), padding="same")(x)
 	x = tf.keras.layers.BatchNormalization()(x)
 	x = tf.keras.layers.Activation('relu')(x)
