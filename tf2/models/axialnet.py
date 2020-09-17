@@ -1,12 +1,5 @@
 import tensorflow as tf
-import dolhasz
-import sys
-import matplotlib
-#matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import datetime
+
 
 class AxialAttention(tf.keras.layers.Layer):
 	def __init__(self, in_ch, out_ch, groups=8, kernel_size=56,
@@ -127,13 +120,16 @@ class AxialAttention(tf.keras.layers.Layer):
 		q_embedding = tf.concat(q_embedding, axis=1)
 		k_embedding = tf.concat(k_embedding, axis=1)
 		v_embedding = tf.concat(v_embedding, axis=1)
-		# 'ij, ij -> i
+
 		new_q = tf.reshape(q, (N, H, W, self.groups, self.group_ch // 2))
 		qr = tf.einsum('biwgc, ijc->bijwg', 
 				new_q, 
 				q_embedding
 			)
-		qr = tf.reshape(self.bn_qr(tf.reshape(qr, (N, -1, W, self.groups)), training=training), (N, H, H, W, self.groups))
+		qr = tf.reshape(
+			self.bn_qr(tf.reshape(qr, (N, -1, W, self.groups)), training=training), 
+			(N, H, H, W, self.groups)
+		)
 
 		kr = tf.einsum('biwgc, ijc->bijwg', 
 				tf.reshape(k, (N, H, W, self.groups, self.group_ch // 2)), 
@@ -294,54 +290,6 @@ class AxialDecoderBlock(tf.keras.layers.Layer):
 		return out
 
 
-def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, dense=False):
-	def make_ds(target=128):
-		return tf.keras.Sequential(
-			[tf.keras.layers.Conv2D(target, (1,1), strides=2, padding="same"),
-			tf.keras.layers.BatchNormalization()]
-		)
-
-	# Build root	
-	inpt = tf.keras.layers.Input(shape=(256,256,3))
-	x = tf.keras.layers.Conv2D(int(start_ch), (7,7), strides=2, padding="same")(inpt)
-	x = tf.keras.layers.BatchNormalization()(x)
-	xo = tf.keras.layers.Activation('relu')(x)
-	xp = tf.keras.layers.MaxPool2D()(xo)
-	x = xp
-
-	# Build encoder
-	skips = []
-	for layer_idx in range(n_layers):
-		for b in range(n_blocks-1):
-			x = AxialEncoderBlock(start_ch, start_ch, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)(x)
-			if b == 0:
-				skips.append(x)
-		x = AxialEncoderBlock(start_ch, start_ch*2, stride=2, groups=groups, base_width=start_ch, kernel_size=ksize, downsample=make_ds(start_ch*2))(x)
-		start_ch *= 2
-		ksize //= 2
-
-	if dense:
-		x = tf.keras.layers.Flatten()(x)
-		x = tf.keras.layers.Dense(1024)(x)
-		x = tf.keras.layers.Reshape((1,1,1024))(x)
-
-	# Build decoder
-	for l in range(n_layers):
-		ksize *= 2
-		x = AxialDecoderBlock(start_ch, start_ch//2, stride=1, groups=groups, base_width=start_ch, kernel_size=ksize)([x, skips[n_layers-l-1]])
-		start_ch //= 2
-
-	x = tf.keras.layers.Add()([x, xp])
-	x = tf.keras.layers.UpSampling2D()(x)
-	x = tf.keras.layers.Conv2D(start_ch, (4,4), padding="same")(x)
-	x = tf.keras.layers.BatchNormalization()(x)
-	x = tf.keras.layers.Activation('relu')(x)
-	x = tf.keras.layers.Add()([x, xo])
-	x = tf.keras.layers.UpSampling2D()(x)
-	x = tf.keras.layers.Conv2D(3, (4,4), padding="same")(x)
-
-	return tf.keras.Model(inpt, x)
-
 
 class AxialUnet(tf.keras.Model):
 	def __init__(self, in_ch=64, groups=8, base_width=64, scale=1):
@@ -431,87 +379,3 @@ class AxialUnet(tf.keras.Model):
 
 		return tf.keras.models.Sequential(layers)
 
-
-def train(args=None):
-	logpath = os.path.join('logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
-	os.mkdir(logpath)
-	batch_size = 12
-	epochs = 50
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, training=False).no_masks()
-	strategy = tf.distribute.MirroredStrategy()
-	callbacks = [
-		# tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
-		tf.keras.callbacks.TensorBoard(log_dir=logpath),
-		tf.keras.callbacks.ReduceLROnPlateau(patience=10)
-		]
-	with strategy.scope():
-		model = make_axial_unet(
-			start_ch=32, 
-			groups=1, 
-			n_blocks=2, 
-			n_layers=3, 
-			ksize=64, 
-			dense=False
-		)
-		model.summary()
-		opt = tf.keras.optimizers.Adam(lr=0.0001)
-		model.compile(opt, 'mse', metrics=['mse', 'mae'])
-	model.fit(
-		x=train_gen,
-		epochs=epochs,
-		steps_per_epoch=tf.data.experimental.cardinality(train_gen).numpy()//epochs,
-		callbacks=callbacks,
-		validation_data=val_gen,
-		validation_steps=tf.data.experimental.cardinality(val_gen).numpy()//epochs,
-		max_queue_size=512,
-		workers=16,
-		use_multiprocessing=False,
-		shuffle=True
-   	)
-
-
-def mse_scaled(y_true, y_pred):
-	error = y_true-y_pred
-	# count = tf.math.count_nonzero(error, [1,2,3])
-	# area = tf.cast(count, 'float32') /  (y_true.shape[1]*y_true.shape[2]*y_true.shape[3])
-	mse = tf.reduce_mean(tf.math.square(error), axis=[1,2,3]) / (tf.math.reduce_sum(error, axis=[1,2,3])+0.00000001)
-	return mse
-
-
-def test(path):
-	batch_size = 1
-	epochs = 1
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
-	# model = tf.keras.models.load_model(path, compile=False)
-	model = AxialUnet(scale=2)
-	model.build((batch_size,256,256,3))
-	model.load_weights(path).expect_partial()
-	model.compile('adam', 'mse')
-	# model.evaluate(val_gen)
-
-	for batch in val_gen:
-		x, y = batch
-		# print(x.shape)
-		# print(y.shape)
-		p = model.predict(x)
-		print(y)
-		f, ax = plt.subplots(1,3)
-		ax[0].imshow(np.array(x).reshape(256,256,3))
-		ax[1].imshow(np.array(y).reshape(256,256,3))
-		ax[2].imshow(np.array(p).reshape(256,256,3))
-		plt.show()
-
-if __name__ == "__main__":
-
-	# make_axial_unet(start_ch=16, groups=2, n_blocks=2, n_layers=4, ksize=64, dense=False).summary()
-
-	if len(sys.argv) > 1:
-		test(sys.argv[1])
-	else:
-		train()
-
-
-	
-
-#	model.load_weights('/tmp/BEST_MODEL.tf')
