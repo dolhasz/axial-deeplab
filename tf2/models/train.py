@@ -58,8 +58,8 @@ def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, den
 	# x = tf.keras.layers.UpSampling2D()(x)
 	x = tf.keras.layers.Conv2D(start_ch, (4,4), padding="same")(x)
 	x = tf.keras.layers.BatchNormalization()(x)
-	x = tf.keras.layers.Activation('relu')(x)
 	x = tf.keras.layers.Add()([x, xo])
+	x = tf.keras.layers.Activation('relu')(x)
 	x = tf.keras.layers.UpSampling2D()(x)
 	x = tf.keras.layers.Conv2D(3, (4,4), padding="same")(x)
 
@@ -111,8 +111,8 @@ def train(args=None):
 	os.mkdir(logpath)
 	batch_size = 6
 	epochs = 50
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, augment=True).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, augment=True).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [
 		# tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
@@ -120,15 +120,15 @@ def train(args=None):
 		tf.keras.callbacks.ReduceLROnPlateau(patience=10)
 		]
 	with strategy.scope():
-		model = make_axial_unet(
-			start_ch=32, 
-			groups=1, 
-			n_blocks=2, 
-			n_layers=3, 
-			ksize=64, 
-			dense=False
-		)
-		# model = make_unet()
+		# model = make_axial_unet(
+		# 	start_ch=32, 
+		# 	groups=1, 
+		# 	n_blocks=2, 
+		# 	n_layers=3, 
+		# 	ksize=64, 
+		# 	dense=False
+		# )
+		model = make_unet()
 		model.summary()
 		opt = tf.keras.optimizers.Adam(lr=0.0001)
 		model.compile(opt, 'mse', metrics=['mse', 'mae'])
