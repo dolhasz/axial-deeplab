@@ -9,6 +9,7 @@ import os
 import datetime
 from resnet import identity_block, conv_block, upconv_block
 from axialnet import AxialDecoderBlock, AxialEncoderBlock
+import all_modeles
 
 
 def make_axial_unet(start_ch=16, groups=2, n_blocks=3, n_layers=4, ksize=64, dense=False):
@@ -109,10 +110,10 @@ def make_unet(start_ch=16):
 def train(args=None):
 	logpath = os.path.join('logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
 	os.mkdir(logpath)
-	batch_size = 6
+	batch_size = 8
 	epochs = 50
-	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, augment=True).no_masks()
-	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='all', epochs=epochs, batch_size=batch_size, training=False).no_masks()
+	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, augment=True).no_masks()
+	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, training=False).no_masks()
 	strategy = tf.distribute.MirroredStrategy()
 	callbacks = [
 		# tf.keras.callbacks.ModelCheckpoint(os.path.join(logpath, 'cp.ckpt'), monitor='val_loss', verbose=0, save_best_only=True, save_weights_only=True),
@@ -129,6 +130,7 @@ def train(args=None):
 		# 	dense=False
 		# )
 		model = make_unet()
+		model = all_modeles.baseline_resnet()
 		model.summary()
 		opt = tf.keras.optimizers.Adam(lr=0.0001)
 		model.compile(opt, 'mse', metrics=['mse', 'mae'])
