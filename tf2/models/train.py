@@ -107,10 +107,10 @@ def make_unet(start_ch=16):
 	return tf.keras.models.Model(inpt, x)
 
 
-def train(args=None):
+def train(args=None, model_name=None):
 	logpath = os.path.join('logs', datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
 	os.mkdir(logpath)
-	batch_size = 8
+	batch_size = 6
 	epochs = 50
 	train_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, augment=True).no_masks()
 	val_gen = dolhasz.data_opt.iHarmonyGenerator(dataset='HFlickr', epochs=epochs, batch_size=batch_size, training=False).no_masks()
@@ -129,8 +129,9 @@ def train(args=None):
 		# 	ksize=64, 
 		# 	dense=False
 		# )
-		model = make_unet()
-		model = all_modeles.baseline_resnet()
+		# model = make_unet()
+		model = model_name()
+		# model = all_modeles.baseline_resnet_dense()
 		model.summary()
 		opt = tf.keras.optimizers.Adam(lr=0.0001)
 		model.compile(opt, 'mse', metrics=['mse', 'mae'])
@@ -180,4 +181,7 @@ if __name__ == "__main__":
 	if len(sys.argv) > 1:
 		test(sys.argv[1])
 	else:
-		train()
+		for name, val in all_modeles.__dict__.items():
+			if callable(val) and name in ('baseline_resnet', 'baseline_resnet_dense', 'resnet_axial_decoder'):
+				train(model_name=val)
+				tf.keras.backend.clear_session()
