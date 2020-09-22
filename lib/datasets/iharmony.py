@@ -97,6 +97,6 @@ class HarmonisationDataset(Dataset):
 if __name__ == "__main__":
     h = HarmonisationDataset('E:/image_harmonization', 'HCOCO', train=True)
 
-    dl = DataLoader(h, batch_size=8, shuffle=True, num_workers=0)
+    dl = DataLoader(h, batch_size=8, shuffle=True, num_workers=8)
     for i in iter(dl):
         print(i['real'].shape)
