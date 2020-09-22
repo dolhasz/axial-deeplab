@@ -10,7 +10,6 @@ import torch.multiprocessing as multiprocessing
 class SimpleDecoderBlock(torch.nn.Module):
     def __init__(self, in_ch, out_ch):
         super().__init__()
-
         self.conv_1 = torch.nn.Conv2d(in_ch, in_ch // 2, kernel_size=1) 
         self.bn_1 = torch.nn.BatchNorm2d(in_ch // 2)
         self.relu = torch.nn.ReLU(inplace=True)
@@ -24,8 +23,9 @@ class SimpleDecoderBlock(torch.nn.Module):
         self.bn_m1 = torch.nn.BatchNorm2d(out_ch)
         self.upsample_m = torch.nn.Upsample(scale_factor=2)
 
-
     def forward(self, x, skip=None):
+        if isinstance(x, list):
+            x, skip = x
         identity = x
 
         # Main Branch
@@ -53,12 +53,20 @@ class SimpleDecoderBlock(torch.nn.Module):
         return x
 
 
+skips = {}
+def get_activation(name):
+    def hook(module, input, output):
+        skips[name] = output.detach()
+    return hook
+
+
 class AxialDeeplab(torch.nn.Module):
     def __init__(self, backbone, upsampling_block, base_ch=1536):
         super().__init__()
         self.backbone = backbone
-        features = list(self.backbone.children())
-        # print(features)2
+        self.backbone[4][2].bn2.register_forward_hook(get_activation(0))
+        self.backbone[5][3].bn2.register_forward_hook(get_activation(1))
+        self.backbone[6][5].bn2.register_forward_hook(get_activation(2))
         self.up1 = upsampling_block(base_ch, base_ch // 2)
         self.up2 = upsampling_block(base_ch // 2, base_ch // 4)
         self.up3 = upsampling_block(base_ch // 4, base_ch // 8)
@@ -66,11 +74,10 @@ class AxialDeeplab(torch.nn.Module):
         self.up5 = upsampling_block(base_ch // 16, 3)
 
     def forward(self, x):
-        # x.cuda()
         x = self.backbone(x)
-        x = self.up1(x)
-        x = self.up2(x)
-        x = self.up3(x)
+        x = self.up1([x, skips[2]])
+        x = self.up2([x, skips[1]])
+        x = self.up3([x, skips[0]])
         x = self.up4(x)
         x = self.up5(x)
         return x
@@ -79,9 +86,9 @@ class AxialDeeplab(torch.nn.Module):
 def make_deeplab():
     backbone = axial50m(pretrained=True)
     backbone = torch.nn.Sequential(*list(backbone.children())[:-2])
+    print(backbone)
     model = AxialDeeplab(backbone, SimpleDecoderBlock)
     return model
-
 
 
 
@@ -90,14 +97,23 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     # Data
-    train_loader = torch.utils.data.DataLoader(iHarmonyLoader('all', train=True), batch_size=32, shuffle=True, num_workers=10, pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(iHarmonyLoader('all', train=False), batch_size=32, num_workers=10, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(
+                    iHarmonyLoader('all', train=True), 
+                    batch_size=18, shuffle=True, 
+                    num_workers=10, pin_memory=True, 
+                    drop_last=True)
+
+    val_loader = torch.utils.data.DataLoader(
+                    iHarmonyLoader('all', train=False), 
+                    batch_size=18, num_workers=10, 
+                    pin_memory=True, drop_last=True)
 
     # Model
     model = make_deeplab()
-    model = torch.nn.DataParallel(model)
-    model.cuda()
-    print(summary(model, (3,224,224)))
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+    model.to('cuda')
+    print(model)
 
     # Optimizer
     lossf = torch.nn.MSELoss()
@@ -113,6 +129,7 @@ if __name__ == "__main__":
         model.train()
         train_loss = 0.0
         for batch, (xb, yb) in enumerate(train_loader):
+            print(f'Step {batch}/{len(train_loader)}')
             xb = xb.to('cuda')
             yb = yb.to('cuda')
             pred = model(xb)
@@ -127,6 +144,7 @@ if __name__ == "__main__":
         val_loss = 0.0
         with torch.no_grad():
             for idx, (xb, yb) in enumerate(val_loader):
+                print(f'Step {idx}/{len(train_loader)}')
                 xb = xb.to('cuda')
                 yb = yb.to('cuda')
                 pred = model(xb)
