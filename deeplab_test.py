@@ -61,7 +61,7 @@ class SimpleDecoderBlock(torch.nn.Module):
 skips = {}
 def get_activation(name):
     def hook(module, input, output):
-        skips[name] = output.detach().to('cuda')
+        skips[name] = output.detach().to('cuda:0')
     return hook
 
 
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     model = make_deeplab()
     if n_gpus > 1:
         model = torch.nn.DataParallel(model)
-    model.to('cuda')
+    model.to('cuda:0')
     print(model)
 
     # Optimizer
@@ -141,8 +141,8 @@ if __name__ == "__main__":
         train_loss = 0.0
         for batch, (xb, yb) in enumerate(train_loader):
             print(f'Step {batch}/{len(train_loader)}')
-            xb = xb.to('cuda')
-            yb = yb.to('cuda')
+            xb = xb.to('cuda:0')
+            yb = yb.to('cuda:0')
             pred = model(xb)
             loss = lossf(pred, yb)
             loss.backward()
@@ -156,8 +156,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             for idx, (xb, yb) in enumerate(val_loader):
                 print(f'Step {idx}/{len(val_loader)}')
-                xb = xb.to('cuda')
-                yb = yb.to('cuda')
+                xb = xb.to('cuda:0')
+                yb = yb.to('cuda:0')
                 pred = model(xb)
                 loss = lossf(pred, yb)
                 val_loss += loss.item()
