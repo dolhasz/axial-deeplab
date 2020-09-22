@@ -66,6 +66,7 @@ class AxialDeeplab(torch.nn.Module):
         self.up5 = upsampling_block(base_ch // 16, 3)
 
     def forward(self, x):
+        # x.cuda()
         x = self.backbone(x)
         x = self.up1(x)
         x = self.up2(x)
@@ -94,8 +95,8 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     # Data
-    train_loader = torch.utils.data.DataLoader(iHarmonyLoader('Hday2night', train=True), batch_size=6, shuffle=True, num_workers=2)
-    val_loader = torch.utils.data.DataLoader(iHarmonyLoader('Hday2night', train=False), batch_size=8, num_workers=8)
+    train_loader = torch.utils.data.DataLoader(iHarmonyLoader('Hday2night', train=True), batch_size=6, shuffle=True, num_workers=2, pin_memory=True)
+    val_loader = torch.utils.data.DataLoader(iHarmonyLoader('Hday2night', train=False), batch_size=8, num_workers=8, pin_memory=True)
 
     # Model
     model = make_deeplab()
