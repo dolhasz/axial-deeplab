@@ -90,8 +90,8 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     # Data
-    train_loader = torch.utils.data.DataLoader(iHarmonyLoader('Hday2night', train=True), batch_size=24, shuffle=True, num_workers=10, pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(iHarmonyLoader('Hday2night', train=False), batch_size=32, num_workers=10, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(iHarmonyLoader('all', train=True), batch_size=32, shuffle=True, num_workers=10, pin_memory=True)
+    val_loader = torch.utils.data.DataLoader(iHarmonyLoader('all', train=False), batch_size=32, num_workers=10, pin_memory=True)
 
     # Model
     model = make_deeplab()
