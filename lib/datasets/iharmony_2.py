@@ -91,7 +91,7 @@ class iHarmonyLoader(data.Dataset):
         if self.Y_transforms is not None:
             Y = self.Y_transforms(Y)
 
-        return X.cuda(), Y.cuda()
+        return X, Y
 
 
 
