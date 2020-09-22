@@ -118,6 +118,8 @@ if __name__ == "__main__":
         model.train()
         # train_batch_losses = list()
         for batch, (xb, yb) in enumerate(train_loader):
+            xb.cuda()
+            yb.cuda()
             pred = model(xb)
             loss = lossf(pred, yb)
             # train_batch_losses.append(loss.item())
