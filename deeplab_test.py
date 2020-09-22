@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
     # Optimizer
     lossf = torch.nn.MSELoss()
-    opt = torch.optim.Adam(model.parameters(), lr=0.0001)
+    opt = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Tensorboard
     writer = SummaryWriter()
