@@ -141,8 +141,8 @@ if __name__ == "__main__":
         train_loss = 0.0
         for batch, (xb, yb) in enumerate(train_loader):
             print(f'Step {batch}/{len(train_loader)}')
-            xb = xb.to('cuda')
-            yb = yb.to('cuda')
+            xb = xb.to('cuda:0')
+            yb = yb.to('cuda:0')
             pred = model(xb)
             loss = lossf(pred, yb)
             loss.backward()
@@ -156,12 +156,12 @@ if __name__ == "__main__":
         with torch.no_grad():
             for idx, (xb, yb) in enumerate(val_loader):
                 print(f'Step {idx}/{len(val_loader)}')
-                xb = xb.to('cuda')
-                yb = yb.to('cuda')
+                xb = xb.to('cuda:0')
+                yb = yb.to('cuda:0')
                 pred = model(xb)
                 loss = lossf(pred, yb)
                 val_loss += loss.item()
             writer.add_scalar('Loss/Validation', train_loss/len(val_loader), epoch)
-            
+
     writer.close()
         
