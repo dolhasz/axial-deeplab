@@ -135,6 +135,8 @@ if __name__ == "__main__":
         # val_batch_losses = list()
         with torch.no_grad():
             for idx, (xb, yb) in enumerate(val_loader):
+                xb = xb.to('cuda')
+                yb = yb.to('cuda')
                 pred = model(xb)
                 loss = lossf(pred, yb)
                 writer.add_scalar('Loss/Validation', loss.item(), batch*epoch+batch)
