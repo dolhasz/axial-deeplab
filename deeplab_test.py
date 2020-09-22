@@ -81,9 +81,6 @@ class AxialDeeplab(torch.nn.Module):
 def make_deeplab():
     backbone = axial50m(pretrained=True)
     backbone = torch.nn.Sequential(*list(backbone.children())[:-2])
-    # for p in backbone.parameters():
-    #     p.requires_grad = False
-    # backbone.to('cuda')
     model = AxialDeeplab(backbone, SimpleDecoderBlock)
     return model
 
@@ -114,33 +111,29 @@ if __name__ == "__main__":
     # Training
     epochs = 100
     for epoch in range(epochs):
-        
+        print(f'Epoch: {epoch+1}')
         model.train()
-        # train_batch_losses = list()
+        train_loss = 0.0
         for batch, (xb, yb) in enumerate(train_loader):
             xb = xb.to('cuda')
             yb = yb.to('cuda')
             pred = model(xb)
             loss = lossf(pred, yb)
-            # train_batch_losses.append(loss.item())
             loss.backward()
             opt.step()
             opt.zero_grad()
-            writer.add_scalar('Loss/Train', loss.item(), batch*epoch+batch)
-        # epoch_loss = np.mean(train_batch_losses)
-        # print(f'Training Loss: {epoch_loss}')
-        # writer.add_scalar()
+            train_loss += loss.item()
+        writer.add_scalar('Loss/Train', train_loss/len(train_loader), epoch)
 
         model.eval()
-        # val_batch_losses = list()
+        val_loss = 0.0
         with torch.no_grad():
             for idx, (xb, yb) in enumerate(val_loader):
                 xb = xb.to('cuda')
                 yb = yb.to('cuda')
                 pred = model(xb)
                 loss = lossf(pred, yb)
-                writer.add_scalar('Loss/Validation', loss.item(), batch*epoch+batch)
-        # epoch_loss = np.mean(val_batch_losses)
-        # print(f'Validation Loss: {epoch_loss}')
+                val_loss += loss.item()
+            writer.add_scalar('Loss/Validation', train_loss/len(val_loader), epoch)
     writer.close()
         
