@@ -165,6 +165,66 @@ class AxialBlock(nn.Module):
 
         return out
 
+class AxialDecoderBlock(nn.Module):
+    expansion = 2
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+                 base_width=64, norm_layer=None, kernel_size=56, skip=False, hack=False):
+        super(AxialDecoderBlock, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        width = int(planes * (base_width / 64.))
+        # Both self.conv2 and self.downsample layers downsample the input when stride != 1
+        self.conv_down = conv1x1(inplanes, width)
+        self.bn1 = norm_layer(width)
+        self.upsample1 = nn.Upsample(scale_factor=2)
+        self.hight_block = AxialAttention(width, width, groups=groups, kernel_size=kernel_size)
+        self.width_block = AxialAttention(width, width, groups=groups, kernel_size=kernel_size, width=True)
+        self.conv_up = conv1x1(width, planes)
+        self.bn2 = norm_layer(planes)
+        self.relu = nn.ReLU(inplace=True)
+        
+        self.conv_r = conv1x1(inplanes, planes)
+        self.bn_r = norm_layer(planes)
+        self.upsample_r = nn.Upsample(scale_factor=2)
+        
+        self.downsample = downsample
+        self.stride = stride
+        if skip:
+            if not hack:
+                self.conv_skip = conv1x1(planes, planes)
+            else:
+                self.conv_skip = conv1x1(48, 96)
+
+    def forward(self, x):
+        skip = None
+        if isinstance(x, list):
+            x, skip = x
+        identity = x
+        identity = self.conv_r(identity)
+        identity = self.bn_r(identity)
+        identity = self.relu(identity)
+        identity = self.upsample_r(identity)
+
+        out = self.conv_down(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.upsample1(out)
+
+        out = self.hight_block(out)
+        out = self.width_block(out)
+        out = self.relu(out)
+
+        out = self.conv_up(out)
+        out = self.bn2(out)
+        out += identity
+        if skip is not None:
+            skip = self.conv_skip(skip)
+            out += skip
+        out = self.relu(out)
+
+        return out
+
 
 class AxialAttentionNet(nn.Module):
 

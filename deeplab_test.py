@@ -5,6 +5,7 @@ from lib.models.axialnet import axial50m
 from torch.utils.tensorboard import SummaryWriter
 import torch.multiprocessing as multiprocessing
 from lib.datasets.iharmony_2 import iHarmonyLoader
+from lib.models.axialnet import AxialDecoderBlock
 
 
 class SimpleDecoderBlock(torch.nn.Module):
@@ -67,10 +68,16 @@ class AxialDeeplab(torch.nn.Module):
         self.backbone[5][3].bn2.register_forward_hook(get_activation(2))
         self.backbone[6][5].bn2.register_forward_hook(get_activation(3))
         
-        self.up1 = upsampling_block(base_ch, base_ch // 2)
-        self.up2 = upsampling_block(base_ch // 2, base_ch // 4)
-        self.up3 = upsampling_block(base_ch // 4, base_ch // 8)
-        self.up4 = upsampling_block(base_ch // 8, base_ch // 16, conv_skip=True) # FIXME: This is hacky - find out what's happening
+        # self.up1 = upsampling_block(base_ch, base_ch // 2)
+
+        self.up1 = AxialDecoderBlock(base_ch, base_ch // 2, norm_layer=torch.nn.BatchNorm2d, kernel_size=14, skip=True)
+        self.up2 = AxialDecoderBlock(base_ch // 2, base_ch // 4, norm_layer=torch.nn.BatchNorm2d, kernel_size=28, skip=True)
+        self.up3 = AxialDecoderBlock(base_ch // 4, base_ch // 8, norm_layer=torch.nn.BatchNorm2d, kernel_size=56, skip=True)
+        self.up4 = AxialDecoderBlock(base_ch // 8, base_ch // 16, norm_layer=torch.nn.BatchNorm2d, kernel_size=112, skip=True, hack=True ) # FIXME: This is hacky - find out what's happening
+        # self.up5 = AxialDecoderBlock(base_ch // 16, 3, norm_layer=torch.nn.BatchNorm2d, kernel_size=224, skip=False)
+        # self.up2 = upsampling_block(base_ch // 2, base_ch // 4)
+        # self.up3 = upsampling_block(base_ch // 4, base_ch // 8)
+        # self.up4 = upsampling_block(base_ch // 8, base_ch // 16, conv_skip=True) # FIXME: This is hacky - find out what's happening
         self.up5 = upsampling_block(base_ch // 16, 3)
 
     def forward(self, x):
@@ -161,7 +168,7 @@ if __name__ == "__main__":
     
     # Params
     epochs = 100
-    batch_size = 8
+    batch_size = 4
     lr = 0.001
     dataset = 'Hday2night'
 
