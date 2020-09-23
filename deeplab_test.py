@@ -58,7 +58,7 @@ class SimpleDecoderBlock(torch.nn.Module):
         return x
 
 
-skips = [None for _ in range(4)].to('cuda')
+skips = [None for _ in range(4)]
 def get_activation(name):
     def hook(module, input, output):
         skips[name] = output.detach().to('cpu')
@@ -98,6 +98,14 @@ def make_deeplab():
     return model
 
 
+def run_epoch(model, dataloader, lossf, opt=None):
+    pass
+
+
+def fit():
+    pass
+
+
 
 if __name__ == "__main__":
     from lib.datasets.iharmony_2 import iHarmonyLoader
@@ -122,7 +130,7 @@ if __name__ == "__main__":
     model = make_deeplab()
     if n_gpus > 1:
         model = torch.nn.DataParallel(model)
-    model.to('cuda:0')
+    model.to('cuda')
     print(model)
 
     # Optimizer
@@ -141,8 +149,8 @@ if __name__ == "__main__":
         train_loss = 0.0
         for batch, (xb, yb) in enumerate(train_loader):
             print(f'Step {batch}/{len(train_loader)}')
-            xb = xb.to('cuda:0')
-            yb = yb.to('cuda:0')
+            xb = xb.to('cuda')
+            yb = yb.to('cuda')
             pred = model(xb)
             loss = lossf(pred, yb)
             loss.backward()
@@ -156,12 +164,13 @@ if __name__ == "__main__":
         with torch.no_grad():
             for idx, (xb, yb) in enumerate(val_loader):
                 print(f'Step {idx}/{len(val_loader)}')
-                xb = xb.to('cuda:0')
-                yb = yb.to('cuda:0')
+                xb = xb.to('cuda')
+                yb = yb.to('cuda')
                 pred = model(xb)
                 loss = lossf(pred, yb)
                 val_loss += loss.item()
             writer.add_scalar('Loss/Validation', train_loss/len(val_loader), epoch)
+            writer.add_image('img', pred[0,:,:,:].reshape(3, 224, 224), epoch)
 
     writer.close()
         
