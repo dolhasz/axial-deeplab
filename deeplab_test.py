@@ -58,7 +58,7 @@ class SimpleDecoderBlock(torch.nn.Module):
         return x
 
 
-skips = list(4)
+skips = [None * 4]
 def get_activation(name):
     def hook(module, input, output):
         skips[name] = output.detach()
