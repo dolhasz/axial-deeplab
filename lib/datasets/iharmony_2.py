@@ -72,6 +72,8 @@ class iHarmonyLoader(data.Dataset):
             transforms.Resize(resize),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            transforms.RandomHorizontalFlip(0.5),
+            transforms.RandomVerticalFlip(0.5)
         ]) 
         self.Y_transforms = transforms.Compose([
             transforms.Resize(resize),
