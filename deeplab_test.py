@@ -61,7 +61,7 @@ class SimpleDecoderBlock(torch.nn.Module):
 skips = [None for _ in range(4)].to('cuda')
 def get_activation(name):
     def hook(module, input, output):
-        skips[name] = output.detach().to('cuda')
+        skips[name] = output.detach().to('cpu')
     return hook
 
 
@@ -82,10 +82,10 @@ class AxialDeeplab(torch.nn.Module):
 
     def forward(self, x):
         x = self.backbone(x)
-        x = self.up1([x, skips[3]])
-        x = self.up2([x, skips[2]])
-        x = self.up3([x, skips[1]])
-        x = self.up4([x, skips[0]])
+        x = self.up1([x, skips[3].to('cuda')])
+        x = self.up2([x, skips[2].to('cuda')])
+        x = self.up3([x, skips[1].to('cuda')])
+        x = self.up4([x, skips[0].to('cuda')])
         x = self.up5(x)
         return x
 
