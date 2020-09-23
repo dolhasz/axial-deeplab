@@ -58,13 +58,6 @@ class SimpleDecoderBlock(torch.nn.Module):
         return x
 
 
-skips = [None for _ in range(4)]
-def get_activation(name):
-    def hook(module, input, output):
-        skips[name] = output.detach().to('cpu')
-    return hook
-
-
 class AxialDeeplab(torch.nn.Module):
     def __init__(self, backbone, upsampling_block, base_ch=1536):
         super().__init__()
@@ -90,6 +83,13 @@ class AxialDeeplab(torch.nn.Module):
         return x
 
 
+skips = [None for _ in range(4)]
+def get_activation(name):
+    def hook(module, input, output):
+        skips[name] = output.detach().to('cpu')
+    return hook
+
+
 def make_deeplab():
     backbone = axial50m(pretrained=True)
     backbone = torch.nn.Sequential(*list(backbone.children())[:-2])
@@ -103,14 +103,14 @@ def run_epoch(model, dataloader, lossf, opt=None):
     for batch, (xb, yb) in enumerate(dataloader):
         print(f'Step {batch}/{len(dataloader)}')
         if opt is None:
-            batch_loss, n_samples, pred = loss_batch(model, lossf, xb, yb, opt)
+            batch_loss, n, pred = loss_batch(model, lossf, xb, yb, opt)
         else:
-            batch_loss, n_samples = loss_batch(model, lossf, xb, yb, opt)
+            batch_loss, n = loss_batch(model, lossf, xb, yb, opt)
         epoch_loss += batch_loss
     if opt is None:
-        return epoch_loss, n_samples, pred
+        return epoch_loss, n, pred
     else:
-        return epoch_loss, n_samples
+        return epoch_loss, n
 
 
 def loss_batch(model, lossf, xb, yb, opt=None):
@@ -128,8 +128,32 @@ def loss_batch(model, lossf, xb, yb, opt=None):
         return loss.item(), len(xb)
 
 
-def fit():
-    pass
+def fit(model, train_loader, val_loader, lossf, opt, epochs=100):
+    # Tensorboard
+    writer = SummaryWriter()
+    print(f'LOG DIR IS: {writer.log_dir}')
+
+    # Training
+    lowest_loss = 100.0
+    for epoch in range(epochs):
+        print(f'Epoch: {epoch+1}')
+
+        model.train()
+        train_loss, n = run_epoch(model, train_loader, lossf, opt)
+        writer.add_scalar('Loss/Train', train_loss/len(train_loader), epoch)
+
+        model.eval()
+        with torch.no_grad():
+            vloss, n, pred = run_epoch(model, val_loader, lossf, opt=None)
+            epoch_vloss = vloss/len(val_loader)
+            writer.add_scalar('Loss/Validation', epoch_vloss, epoch)
+            for p in pred:
+                writer.add_image('img', p.reshape(3, 224, 224), epoch)
+            if epoch_vloss < lowest_loss:
+                lowest_loss = epoch_vloss
+                torch.save(model.state_dict(), f'{writer.get_logdir()}/best_model.pt')
+                
+    writer.close()
 
 
 
@@ -168,28 +192,5 @@ if __name__ == "__main__":
     lossf = torch.nn.MSELoss()
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
-    # Tensorboard
-    writer = SummaryWriter()
-
-    # Training
-    for epoch in range(epochs):
-        print(f'Epoch: {epoch+1}')
-
-        model.train()
-        train_loss, n_samples = run_epoch(model, train_loader, lossf, opt)
-        writer.add_scalar('Loss/Train', train_loss/len(train_loader), epoch)
-
-        model.eval()
-        with torch.no_grad():
-            val_loss, n_samples, pred = run_epoch(
-                                            model=model, 
-                                            dataloader=val_loader, 
-                                            lossf=lossf, 
-                                            opt=None
-                                        )
-            writer.add_scalar('Loss/Validation', val_loss/len(val_loader), epoch)
-            for p in pred:
-                writer.add_image('img', p.reshape(3, 224, 224), epoch)
-
-    writer.close()
+    fit(model, train_loader, val_loader, lossf, opt, epochs)
         
