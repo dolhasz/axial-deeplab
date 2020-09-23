@@ -61,7 +61,7 @@ class SimpleDecoderBlock(torch.nn.Module):
 skips = [None for _ in range(4)]
 def get_activation(name):
     def hook(module, input, output):
-        skips[name] = output.detach()
+        skips[name] = output.detach().to('cuda')
     return hook
 
 
