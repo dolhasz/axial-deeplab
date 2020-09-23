@@ -75,8 +75,7 @@ class iHarmonyLoader(data.Dataset):
         ]) 
         self.Y_transforms = transforms.Compose([
             transforms.Resize(resize),
-            transforms.ToTensor(),
-            transforms.Normalize(0, 1),
+            transforms.ToTensor()
         ]) 
 
     def __len__(self):

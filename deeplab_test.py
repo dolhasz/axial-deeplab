@@ -4,7 +4,7 @@ from torchsummary import summary
 from lib.models.axialnet import axial50m
 from torch.utils.tensorboard import SummaryWriter
 import torch.multiprocessing as multiprocessing
-
+from lib.datasets.iharmony_2 import iHarmonyLoader
 
 
 class SimpleDecoderBlock(torch.nn.Module):
@@ -99,7 +99,33 @@ def make_deeplab():
 
 
 def run_epoch(model, dataloader, lossf, opt=None):
-    pass
+    epoch_loss = 0.0
+    for batch, (xb, yb) in enumerate(dataloader):
+        print(f'Step {batch}/{len(dataloader)}')
+        if opt is None:
+            batch_loss, n_samples, pred = loss_batch(model, lossf, xb, yb, opt)
+        else:
+            batch_loss, n_samples = loss_batch(model, lossf, xb, yb, opt)
+        epoch_loss += batch_loss
+    if opt is None:
+        return epoch_loss, n_samples, pred
+    else:
+        return epoch_loss, n_samples
+
+
+def loss_batch(model, lossf, xb, yb, opt=None):
+    xb = xb.to('cuda')
+    yb = yb.to('cuda')
+    pred = model(xb)
+    loss = lossf(pred, yb)
+    if opt is not None:
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+    if opt is None:
+        return loss.item(), len(xb), pred
+    else:
+        return loss.item(), len(xb)
 
 
 def fit():
@@ -108,22 +134,27 @@ def fit():
 
 
 if __name__ == "__main__":
-    from lib.datasets.iharmony_2 import iHarmonyLoader
+    
+    # Params
+    epochs = 100
+    batch_size = 8
+    lr = 0.001
+    dataset = 'Hday2night'
+
     n_gpus = torch.cuda.device_count()
     n_cpus = multiprocessing.cpu_count()
-
     multiprocessing.set_start_method('spawn')
 
     # Data
     train_loader = torch.utils.data.DataLoader(
-                    iHarmonyLoader('Hday2night', train=True), 
-                    batch_size=6*n_gpus, shuffle=True, 
+                    iHarmonyLoader(dataset, train=True), 
+                    batch_size=batch_size*n_gpus, shuffle=True, 
                     num_workers=n_cpus, pin_memory=True, 
                     drop_last=True)
 
     val_loader = torch.utils.data.DataLoader(
-                    iHarmonyLoader('Hday2night', train=False), 
-                    batch_size=6*n_gpus, num_workers=n_cpus, 
+                    iHarmonyLoader(dataset, train=False), 
+                    batch_size=batch_size*n_gpus, num_workers=n_cpus, 
                     pin_memory=True, drop_last=True)
 
     # Model
@@ -135,42 +166,30 @@ if __name__ == "__main__":
 
     # Optimizer
     lossf = torch.nn.MSELoss()
-    opt = torch.optim.Adam(model.parameters(), lr=0.001)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     # Tensorboard
     writer = SummaryWriter()
 
     # Training
-    epochs = 100
     for epoch in range(epochs):
         print(f'Epoch: {epoch+1}')
 
         model.train()
-        train_loss = 0.0
-        for batch, (xb, yb) in enumerate(train_loader):
-            print(f'Step {batch}/{len(train_loader)}')
-            xb = xb.to('cuda')
-            yb = yb.to('cuda')
-            pred = model(xb)
-            loss = lossf(pred, yb)
-            loss.backward()
-            opt.step()
-            opt.zero_grad()
-            train_loss += loss.item()
+        train_loss, n_samples = run_epoch(model, train_loader, lossf, opt)
         writer.add_scalar('Loss/Train', train_loss/len(train_loader), epoch)
 
         model.eval()
-        val_loss = 0.0
         with torch.no_grad():
-            for idx, (xb, yb) in enumerate(val_loader):
-                print(f'Step {idx}/{len(val_loader)}')
-                xb = xb.to('cuda')
-                yb = yb.to('cuda')
-                pred = model(xb)
-                loss = lossf(pred, yb)
-                val_loss += loss.item()
-            writer.add_scalar('Loss/Validation', train_loss/len(val_loader), epoch)
-            writer.add_image('img', pred[0,:,:,:].reshape(3, 224, 224), epoch)
+            val_loss, n_samples, pred = run_epoch(
+                                            model=model, 
+                                            dataloader=val_loader, 
+                                            lossf=lossf, 
+                                            opt=None
+                                        )
+            writer.add_scalar('Loss/Validation', val_loss/len(val_loader), epoch)
+            for p in pred:
+                writer.add_image('img', p.reshape(3, 224, 224), epoch)
 
     writer.close()
         
