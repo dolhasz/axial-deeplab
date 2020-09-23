@@ -63,10 +63,10 @@ class AxialDeeplab(torch.nn.Module):
     def __init__(self, backbone, upsampling_block, base_ch=1536):
         super().__init__()
         self.backbone = backbone
-        self.backbone[2].register_forward_hook(get_activation(0))
-        self.backbone[4][2].relu.register_forward_hook(get_activation(1))
-        self.backbone[5][3].relu.register_forward_hook(get_activation(2))
-        self.backbone[6][5].relu.register_forward_hook(get_activation(3))
+        self.backbone[1].register_forward_hook(get_activation(0))
+        self.backbone[4][2].bn2.register_forward_hook(get_activation(1))
+        self.backbone[5][3].bn2.register_forward_hook(get_activation(2))
+        self.backbone[6][5].bn2.register_forward_hook(get_activation(3))
         
         # self.up1 = upsampling_block(base_ch, base_ch // 2)
 
