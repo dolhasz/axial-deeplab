@@ -68,13 +68,20 @@ class iHarmonyLoader(data.Dataset):
         else:
             data = load_image_names(self.basepath, dataset, train)
         self.X, self.Y, self.M = data
-        self.X_transforms = transforms.Compose([
-            transforms.Resize(resize),
-            transforms.RandomHorizontalFlip(0.5),
-            transforms.RandomVerticalFlip(0.5),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]) 
+        if train:
+            self.X_transforms = transforms.Compose([
+                transforms.Resize(resize),
+                # transforms.RandomHorizontalFlip(0.5),
+                # transforms.RandomVerticalFlip(0.5),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ])
+        else:
+            self.X_transforms = transforms.Compose([
+                transforms.Resize(resize),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ])
         self.Y_transforms = transforms.Compose([
             transforms.Resize(resize),
             transforms.ToTensor()
