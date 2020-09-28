@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+import argparse
 import torch
 import numpy as np
 from torchsummary import summary
@@ -81,12 +83,13 @@ class AxialDeeplab(torch.nn.Module):
         self.up5 = upsampling_block(base_ch // 16, 3)
 
     def forward(self, x):
+        identity = x
         x = self.backbone(x)
         x = self.up1([x, skips[3].to('cuda')])
         x = self.up2([x, skips[2].to('cuda')])
         x = self.up3([x, skips[1].to('cuda')])
         x = self.up4([x, skips[0].to('cuda')])
-        x = self.up5(x)
+        x = self.up5([x, identity])
         return x
 
 
@@ -162,29 +165,21 @@ def fit(model, train_loader, val_loader, lossf, opt, epochs=100):
     writer.close()
 
 
-
-if __name__ == "__main__":
-    
-    # Params
-    epochs = 100
-    batch_size = 8
-    lr = 0.001
-    dataset = 'all'
-
+def train(args):
     n_gpus = torch.cuda.device_count()
     n_cpus = multiprocessing.cpu_count()
     multiprocessing.set_start_method('spawn')
 
     # Data
     train_loader = torch.utils.data.DataLoader(
-                    iHarmonyLoader(dataset, train=True), 
-                    batch_size=batch_size*n_gpus, shuffle=True, 
+                    iHarmonyLoader(args.dataset, train=True), 
+                    batch_size=args.batch_size*n_gpus, shuffle=True, 
                     num_workers=n_cpus, pin_memory=True, 
                     drop_last=True)
 
     val_loader = torch.utils.data.DataLoader(
-                    iHarmonyLoader(dataset, train=False), 
-                    batch_size=batch_size*n_gpus, num_workers=n_cpus, 
+                    iHarmonyLoader(args.dataset, train=False), 
+                    batch_size=args.batch_size*n_gpus, num_workers=n_cpus, 
                     pin_memory=True, drop_last=True)
 
     # Model
@@ -196,7 +191,54 @@ if __name__ == "__main__":
 
     # Optimizer
     lossf = torch.nn.MSELoss()
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    fit(model, train_loader, val_loader, lossf, opt, epochs)
+    # Fit
+    fit(model, train_loader, val_loader, lossf, opt, args.epochs)
+
+
+def evaluate(args):
+    # Data
+    val_loader = torch.utils.data.DataLoader(
+                    iHarmonyLoader(args.dataset, train=False), batch_size=1)
+    # Model
+    model = make_deeplab()
+    model = torch.nn.DataParallel(model)
+    model.load_state_dict(torch.load(args.weights))
+    model.to('cuda')
+
+    for (x, y) in val_loader:
+        # Predict and prepare for vis
+        p = model(x)
+        x = x.detach().to('cpu').permute(0, 2, 3, 1).squeeze().numpy() / 2 + 0.5
+        y = y.detach().to('cpu').permute(0, 2, 3, 1).squeeze().numpy()
+        p = p.detach().to('cpu').permute(0, 2, 3, 1).squeeze().numpy()
+
+        # Display sample
+        f, ax = plt.subplots(1,3)
+        ax[0].imshow(x)
+        ax[1].imshow(p)
+        ax[2].imshow(y)
+        plt.show()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train', action='store_true', default=False, help='Training flag')
+    parser.add_argument('--weights', type=str, help='Path to saved weights')
+    parser.add_argument('--dataset', default='all', help='Dataset name')
+    parser.add_argument('--epochs', default=100, type=int, help='Number of epochs (training only)')
+    parser.add_argument('--batch_size', default=10, type=int, help='Batch size (training only)')
+    parser.add_argument('--lr', default=0.001, type=float, help='Learning rate (training only)')
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    if args.train:
+        train(args)
+    else:
+        evaluate(args)
+    
+    
         
