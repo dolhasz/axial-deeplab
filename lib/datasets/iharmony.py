@@ -46,9 +46,9 @@ def parse_args():
 
 
 warnings.filterwarnings("ignore")
-plt.ion()
+# plt.ion()
 
-args = parse_args()
+# args = parse_args()
 
 
 def open_file(path):
